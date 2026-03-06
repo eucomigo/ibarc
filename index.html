@@ -865,7 +865,21 @@ td {
   </main>
 </div>
 
-<!-- ══ MODAL MEMBRO ══ -->
+<!-- LOADING SCREEN -->
+<div id="loading-screen" style="position:fixed;inset:0;background:#080808;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+  <svg width="60" height="60" viewBox="0 0 56 56" fill="none">
+    <circle cx="28" cy="28" r="27" stroke="#c9a84c" stroke-width="1.5" opacity="0.4"/>
+    <rect x="25.5" y="10" width="5" height="26" rx="2" fill="#c9a84c"/>
+    <rect x="15" y="19" width="26" height="5" rx="2" fill="#c9a84c"/>
+    <circle cx="28" cy="28" r="3" fill="#f5dfa0" opacity="0.8"/>
+  </svg>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:1.4rem;color:#e8c96a;letter-spacing:0.1em">IBaRC</div>
+  <div style="font-size:0.75rem;color:#666;letter-spacing:0.1em">Conectando...</div>
+  <div style="width:160px;height:2px;background:#1e1e1e;border-radius:2px;overflow:hidden;margin-top:8px">
+    <div id="loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a84c,#f5dfa0);border-radius:2px;transition:width 0.3s"></div>
+  </div>
+  <div id="loading-msg" style="font-size:0.68rem;color:#555;margin-top:4px">Aguarde...</div>
+</div>
 <div class="modal-overlay" id="modal-membro">
   <div class="modal">
     <div class="modal-header">
@@ -999,6 +1013,27 @@ const firebaseConfig = {
 const fireApp = initializeApp(firebaseConfig);
 const db = getFirestore(fireApp);
 
+// ─── LOADING ───
+let membrosLoaded = false;
+let celulosLoaded = false;
+
+function updateLoading(msg, pct) {
+  const bar = document.getElementById('loading-bar');
+  const txt = document.getElementById('loading-msg');
+  if(bar) bar.style.width = pct + '%';
+  if(txt) txt.textContent = msg;
+}
+
+function checkAllLoaded() {
+  if(membrosLoaded && celulosLoaded) {
+    updateLoading('Pronto!', 100);
+    setTimeout(() => {
+      const ls = document.getElementById('loading-screen');
+      if(ls) { ls.style.opacity='0'; ls.style.transition='opacity 0.4s'; setTimeout(()=>ls.remove(),400); }
+    }, 400);
+  }
+}
+
 // ─── STATE ───
 let _membros = [];
 let _celulas = [];
@@ -1015,18 +1050,3101 @@ const fbSetCelula  = c  => setDoc(doc(db,'celulas',c.id), c);
 const fbDelCelula  = id => deleteDoc(doc(db,'celulas',id));
 
 // ─── REALTIME LISTENERS ───
+updateLoading('Carregando membros...', 30);
 onSnapshot(collection(db,'membros'), snap => {
   _membros = snap.docs.map(d => d.data());
+  membrosLoaded = true;
+  updateLoading('Membros carregados!', 60);
+  checkAllLoaded();
   renderMembros();
   renderPainel();
-  renderAniversariantes();
   if(document.getElementById('page-dashboard').classList.contains('active')) renderDashboard();
+}, err => {
+  updateLoading('Erro ao conectar: ' + err.message, 0);
 });
 
+updateLoading('Carregando células...', 50);
 onSnapshot(collection(db,'celulas'), snap => {
   _celulas = snap.docs.map(d => d.data());
+  celulosLoaded = true;
+  updateLoading('Células carregadas!', 80);
+  checkAllLoaded();
   renderCelulas();
   renderPainel();
+}, err => {
+  updateLoading('Erro: ' + err.message, 0);
+});
+
+// ─── NAVIGATION ───
+function goPage(page, el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  if(el) el.classList.add('active');
+  if(page==='membros')   renderMembros();
+  if(page==='celulas')   renderCelulas();
+  if(page==='painel')    renderPainel();
+  if(page==='dashboard') renderDashboard();
+}
+
+// ─── BADGES ───
+function cargoBadge(c) {
+  const map = {'Pastor':'badge-pastor','Líder':'badge-lider','Líder em Treinamento':'badge-lider-t','Diácono':'badge-diacono','Membro':'badge-membro'};
+  return `<span class="badge ${map[c]||'badge-membro'}">${c||'Membro'}</span>`;
+}
+function casadoBadge(v) {
+  if(v==='Sim')       return `<span class="badge badge-sim">Casado(a)</span>`;
+  if(v==='Viúvo')     return `<span class="badge badge-membro">Viúvo(a)</span>`;
+  if(v==='Divorciado')return `<span class="badge badge-membro">Divorciado(a)</span>`;
+  return `<span class="badge badge-nao">Solteiro(a)</span>`;
+}
+function initials(name) { return name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase(); }
+function formatDate(d) { if(!d)return'—'; const[y,m,day]=d.split('-'); return`${day}/${m}/${y}`; }
+
+// ─── PAINEL ───
+function renderPainel() {
+  const membros=getMembros(), celulas=getCelulas();
+  const total=membros.length, pastores=membros.filter(m=>m.cargo==='Pastor').length;
+  const lideres=membros.filter(m=>m.cargo==='Líder'||m.cargo==='Líder em Treinamento').length;
+  const batizados=membros.filter(m=>m.batismo).length;
+
+  document.getElementById('stats-row').innerHTML=`
+    <div class="stat-card"><div class="stat-label">Total de Membros</div><div class="stat-value">${total}</div><div class="stat-sub">${celulas.length} células ativas</div></div>
+    <div class="stat-card"><div class="stat-label">Pastores</div><div class="stat-value">${pastores}</div><div class="stat-sub">Liderança pastoral</div></div>
+    <div class="stat-card"><div class="stat-label">Líderes</div><div class="stat-value">${lideres}</div><div class="stat-sub">Líder + Em treinamento</div></div>
+    <div class="stat-card"><div class="stat-label">Batizados</div><div class="stat-value">${batizados}</div><div class="stat-sub">${total?Math.round(batizados/total*100):0}% do total</div></div>`;
+
+  const cargos=['Pastor','Líder','Líder em Treinamento','Diácono','Membro'];
+  const cargoRows=cargos.map(c=>{const n=membros.filter(m=>m.cargo===c).length;
+    return`<tr><td>${cargoBadge(c)}</td><td style="color:var(--gold2);font-size:1rem;font-family:'Cormorant Garamond',serif;font-weight:700">${n}</td><td style="color:var(--muted)">${total?Math.round(n/total*100):0}%</td></tr>`;}).join('');
+
+  const celulaRows=celulas.length?celulas.map(c=>{const n=membros.filter(m=>m.celula===c.nome).length;
+    return`<tr><td class="td-name">${c.nome}</td><td style="color:var(--gold2)">${n}</td><td style="color:var(--muted)">${c.lider||'—'}</td></tr>`;}).join('')
+    :`<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:24px">Nenhuma célula cadastrada</td></tr>`;
+
+  document.getElementById('painel-tables').innerHTML=`
+    <div class="table-wrap">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3)">Por Cargo</div>
+      <table><thead><tr><th>Cargo</th><th>Membros</th><th>%</th></tr></thead><tbody>${cargoRows}</tbody></table>
+    </div>
+    <div class="table-wrap">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3)">Por Célula</div>
+      <table><thead><tr><th>Célula</th><th>Membros</th><th>Líder</th></tr></thead><tbody>${celulaRows}</tbody></table>
+    </div>`;
+
+  // sempre renderiza aniversariantes junto com o painel
+  renderAniversariantes();
+}
+
+// ─── MEMBROS ───
+function renderMembros() {
+  const membros=getMembros();
+  const search=(document.getElementById('search-membros')?.value||'').toLowerCase();
+  const filterCargo=document.getElementById('filter-cargo')?.value||'';
+  const filterCelula=document.getElementById('filter-celula-m')?.value||'';
+
+  const celulas=getCelulas();
+  const fcm=document.getElementById('filter-celula-m');
+  if(fcm){const prev=fcm.value;fcm.innerHTML='<option value="">Todas as Células</option>'+celulas.map(c=>`<option ${c.nome===prev?'selected':''}>${c.nome}</option>`).join('');}
+
+  let list=membros;
+  if(search) list=list.filter(m=>(m.nome||'').toLowerCase().includes(search)||(m.cargo||'').toLowerCase().includes(search)||(m.celula||'').toLowerCase().includes(search));
+  if(filterCargo) list=list.filter(m=>m.cargo===filterCargo);
+  if(filterCelula) list=list.filter(m=>m.celula===filterCelula);
+
+  const sub=document.getElementById('membros-count-sub');
+  if(sub) sub.textContent=`${list.length} membro(s) encontrado(s)`;
+
+  const tbody=document.getElementById('tbody-membros');
+  if(!tbody) return;
+  if(!list.length){tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">✦</div><p>Nenhum membro encontrado.<br>Clique em "Novo Membro" para cadastrar.</p></div></td></tr>`;return;}
+
+  tbody.innerHTML=list.map(m=>`
+    <tr>
+      <td><div class="name-cell"><div class="avatar">${initials(m.nome)}</div><span class="td-name">${m.nome}</span></div></td>
+      <td>${cargoBadge(m.cargo||'Membro')}</td>
+      <td>${m.celula?`<span style="color:var(--gold);font-size:0.78rem">${m.celula}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${m.batismo?formatDate(m.batismo):'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${casadoBadge(m.casado)}</td>
+      <td>${m.tel||'<span style="color:var(--muted)">—</span>'}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-outline btn-sm" onclick="window.editMembro('${m.id}')">Editar</button>
+        <button class="btn btn-danger" onclick="window.deleteMembro('${m.id}')">✕</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function openModal(id=null) {
+  editingMembroId=id;
+  const celulas=getCelulas();
+  const fc=document.getElementById('f-celula');
+  fc.innerHTML='<option value="">Sem célula</option>'+celulas.map(c=>`<option>${c.nome}</option>`).join('');
+  if(id){
+    const m=getMembros().find(x=>x.id===id); if(!m)return;
+    document.getElementById('modal-membro-title').textContent='Editar Membro';
+    document.getElementById('f-nome').value=m.nome||'';
+    document.getElementById('f-tel').value=m.tel||'';
+    document.getElementById('f-email').value=m.email||'';
+    document.getElementById('f-cargo').value=m.cargo||'';
+    document.getElementById('f-celula').value=m.celula||'';
+    document.getElementById('f-celula-nome').value=m.celula||'';
+    document.getElementById('f-batismo').value=m.batismo||'';
+    document.getElementById('f-nascimento').value=m.nascimento||'';
+    document.getElementById('f-casado').value=m.casado||'Não';
+    document.getElementById('f-end').value=m.endereco||'';
+  } else {
+    document.getElementById('modal-membro-title').textContent='Novo Membro';
+    ['f-nome','f-tel','f-email','f-batismo','f-nascimento','f-end','f-celula-nome'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('f-cargo').value='';
+    document.getElementById('f-celula').value='';
+    document.getElementById('f-casado').value='Não';
+  }
+  document.getElementById('modal-membro').classList.add('open');
+}
+
+function saveMembro() {
+  const nome=document.getElementById('f-nome').value.trim();
+  if(!nome){toast('⚠ Informe o nome do membro');return;}
+  const cargo=document.getElementById('f-cargo').value;
+  if(!cargo){toast('⚠ Selecione o cargo');return;}
+  const celulaFinal=document.getElementById('f-celula-nome').value.trim()||document.getElementById('f-celula').value;
+  const membro={
+    id:editingMembroId||uid(), nome,
+    tel:document.getElementById('f-tel').value.trim(),
+    email:document.getElementById('f-email').value.trim(),
+    cargo, celula:celulaFinal,
+    batismo:document.getElementById('f-batismo').value,
+    nascimento:document.getElementById('f-nascimento').value,
+    casado:document.getElementById('f-casado').value,
+    endereco:document.getElementById('f-end').value.trim(),
+  };
+  fbSetMembro(membro).then(()=>{
+    toast(editingMembroId?'✦ Membro atualizado':'✦ Membro cadastrado');
+    closeModal('modal-membro');
+  }).catch(()=>toast('⚠ Erro ao salvar. Verifique a conexão.'));
+}
+
+function deleteMembro(id) {
+  if(!confirm('Remover este membro?'))return;
+  fbDelMembro(id).then(()=>toast('Membro removido')).catch(()=>toast('⚠ Erro ao remover'));
+}
+
+// ─── CÉLULAS ───
+function renderCelulas() {
+  const celulas=getCelulas(), membros=getMembros();
+  const search=(document.getElementById('search-celulas')?.value||'').toLowerCase();
+  let list=celulas;
+  if(search) list=list.filter(c=>c.nome.toLowerCase().includes(search));
+  const sub=document.getElementById('celulas-count-sub');
+  if(sub) sub.textContent=`${list.length} célula(s)`;
+  const grid=document.getElementById('celulas-grid');
+  if(!grid)return;
+  if(!list.length){grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">❖</div><p>Nenhuma célula cadastrada.<br>Clique em "Nova Célula" para criar.</p></div>`;return;}
+  grid.innerHTML=list.map(c=>{
+    const mems=membros.filter(m=>m.celula===c.nome);
+    const tags=mems.slice(0,8).map(m=>`<span class="celula-membro-tag">${m.nome.split(' ')[0]}</span>`).join('');
+    const extra=mems.length>8?`<span class="celula-membro-tag" style="color:var(--gold)">+${mems.length-8}</span>`:'';
+    return`<div class="celula-card">
+      <div class="celula-card-header"><div class="celula-name">✟ ${c.nome}</div><div class="celula-count">${mems.length} membro(s)</div></div>
+      <div class="celula-card-body">
+        <div class="celula-lider">Líder: <span>${c.lider||'Não definido'}</span></div>
+        ${c.dia?`<div class="celula-lider">Reunião: <span>${c.dia}</span></div>`:''}
+        ${c.endereco?`<div class="celula-lider" style="margin-bottom:12px">Local: <span>${c.endereco}</span></div>`:''}
+        <div class="celula-membros">${tags}${extra}${!mems.length?'<span style="color:var(--muted);font-size:0.72rem">Nenhum membro nesta célula</span>':''}</div>
+        <div class="celula-actions">
+          <button class="btn btn-outline btn-sm" onclick="window.editCelula('${c.id}')">Editar</button>
+          <button class="btn btn-danger" onclick="window.deleteCelula('${c.id}')">✕ Excluir</button>
+        </div>
+      </div></div>`;}).join('');
+}
+
+function openCelulaModal(id=null) {
+  editingCelulaId=id;
+  const membros=getMembros().filter(m=>['Líder','Líder em Treinamento','Pastor'].includes(m.cargo));
+  const fl=document.getElementById('fc-lider');
+  fl.innerHTML='<option value="">Selecione um líder...</option>'+membros.map(m=>`<option>${m.nome}</option>`).join('');
+  if(id){
+    const c=getCelulas().find(x=>x.id===id); if(!c)return;
+    document.getElementById('modal-celula-title').textContent='Editar Célula';
+    document.getElementById('fc-nome').value=c.nome||'';
+    document.getElementById('fc-lider').value=c.lider||'';
+    document.getElementById('fc-dia').value=c.dia||'';
+    document.getElementById('fc-end').value=c.endereco||'';
+  } else {
+    document.getElementById('modal-celula-title').textContent='Nova Célula';
+    ['fc-nome','fc-end'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('fc-lider').value='';
+    document.getElementById('fc-dia').value='';
+  }
+  document.getElementById('modal-celula').classList.add('open');
+}
+
+function saveCelula() {
+  const nome=document.getElementById('fc-nome').value.trim();
+  if(!nome){toast('⚠ Informe o nome da célula');return;}
+  const celula={id:editingCelulaId||uid(),nome,lider:document.getElementById('fc-lider').value,dia:document.getElementById('fc-dia').value,endereco:document.getElementById('fc-end').value.trim()};
+  if(editingCelulaId){
+    const old=getCelulas().find(c=>c.id===editingCelulaId);
+    if(old&&old.nome!==nome) getMembros().filter(m=>m.celula===old.nome).forEach(m=>fbSetMembro({...m,celula:nome}));
+  }
+  fbSetCelula(celula).then(()=>{toast(editingCelulaId?'✦ Célula atualizada':'✦ Célula criada');closeModal('modal-celula');}).catch(()=>toast('⚠ Erro ao salvar célula'));
+}
+
+function deleteCelula(id) {
+  if(!confirm('Excluir esta célula? Os membros não serão removidos, apenas desvinculados.'))return;
+  const c=getCelulas().find(x=>x.id===id);
+  if(c) getMembros().filter(m=>m.celula===c.nome).forEach(m=>fbSetMembro({...m,celula:''}));
+  fbDelCelula(id).then(()=>toast('Célula removida')).catch(()=>toast('⚠ Erro ao remover'));
+}
+
+// ─── MODAL HELPERS ───
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(o=>{
+  o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');});
+});
+
+// ─── TOAST ───
+function toast(msg) {
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);setTimeout(()=>t.remove(),2800);
+}
+
+// ─── DASHBOARD ───
+function drawDonut(canvasId,labels,values,colors) {
+  const canvas=document.getElementById(canvasId);if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width=canvas.offsetWidth||340,H=canvas.height=220;
+  ctx.clearRect(0,0,W,H);
+  const total=values.reduce((a,b)=>a+b,0);
+  if(!total){ctx.fillStyle='#444';ctx.font='14px Outfit';ctx.textAlign='center';ctx.fillText('Sem dados',W/2,H/2);return;}
+  const cx=W/2,cy=H/2,R=Math.min(cx,cy)-10,r=R*0.55;
+  let angle=-Math.PI/2;
+  values.forEach((v,i)=>{if(!v)return;const slice=(v/total)*Math.PI*2;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R,angle,angle+slice);ctx.closePath();
+    ctx.fillStyle=colors[i];ctx.fill();ctx.strokeStyle='#0f0f0f';ctx.lineWidth=2;ctx.stroke();angle+=slice;});
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fillStyle='#0f0f0f';ctx.fill();
+  ctx.fillStyle='#e8c96a';ctx.font=`bold ${Math.round(R*0.38)}px Cormorant Garamond`;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(total,cx,cy-8);ctx.fillStyle='#666';ctx.font=`${Math.round(R*0.16)}px Outfit`;ctx.fillText('total',cx,cy+14);
+}
+
+function drawBar(canvasId,labels,values,color='#c9a84c') {
+  const canvas=document.getElementById(canvasId);if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width=canvas.offsetWidth||340,H=canvas.height=220;
+  ctx.clearRect(0,0,W,H);
+  if(!values.length||!values.reduce((a,b)=>a+b,0)){ctx.fillStyle='#444';ctx.font='14px Outfit';ctx.textAlign='center';ctx.fillText('Sem dados',W/2,H/2);return;}
+  const pad={top:16,right:16,bottom:48,left:36};
+  const chartW=W-pad.left-pad.right,chartH=H-pad.top-pad.bottom,maxVal=Math.max(...values,1);
+  const gap=chartW/labels.length,barW=Math.max(8,gap*0.55);
+  [0,0.25,0.5,0.75,1].forEach(p=>{const y=pad.top+chartH*(1-p);
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#555';ctx.font='10px Outfit';ctx.textAlign='right';ctx.fillText(Math.round(maxVal*p),pad.left-4,y+4);});
+  labels.forEach((lbl,i)=>{const v=values[i],x=pad.left+gap*i+gap/2-barW/2,bH=Math.max(2,(v/maxVal)*chartH),y=pad.top+chartH-bH;
+    const grad=ctx.createLinearGradient(0,y,0,y+bH);grad.addColorStop(0,color);grad.addColorStop(1,color+'44');
+    ctx.fillStyle=grad;ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,barW,bH,4);else ctx.rect(x,y,barW,bH);ctx.fill();
+    if(v>0){ctx.fillStyle='#e8c96a';ctx.font='bold 11px Outfit';ctx.textAlign='center';ctx.fillText(v,x+barW/2,y-5);}
+    ctx.fillStyle='#888';ctx.font='10px Outfit';ctx.textAlign='center';
+    const s=lbl.length>8?lbl.slice(0,7)+'…':lbl;ctx.fillText(s,x+barW/2,H-pad.bottom+14);});
+}
+
+function makeLegend(containerId,labels,values,colors) {
+  const el=document.getElementById(containerId);if(!el)return;
+  const total=values.reduce((a,b)=>a+b,0);
+  el.innerHTML=labels.map((l,i)=>`<div style="display:flex;align-items:center;gap:6px;font-size:0.7rem;color:#999">
+    <span style="width:10px;height:10px;border-radius:50%;background:${colors[i]};flex-shrink:0"></span>
+    ${l} <span style="color:#c9a84c;font-weight:600">${values[i]}</span>
+    <span style="color:#555">(${total?Math.round(values[i]/total*100):0}%)</span></div>`).join('');
+}
+
+function renderDashboard() {
+  const membros=getMembros(),celulas=getCelulas();
+  const total=membros.length,batizados=membros.filter(m=>m.batismo).length;
+  const casados=membros.filter(m=>m.casado==='Sim').length;
+  const lideres=membros.filter(m=>['Líder','Líder em Treinamento','Pastor'].includes(m.cargo)).length;
+  document.getElementById('dash-stats').innerHTML=`
+    <div class="stat-card"><div class="stat-label">Total de Membros</div><div class="stat-value">${total}</div><div class="stat-sub">${celulas.length} células</div></div>
+    <div class="stat-card"><div class="stat-label">Batizados</div><div class="stat-value">${batizados}</div><div class="stat-sub">${total?Math.round(batizados/total*100):0}% do total</div></div>
+    <div class="stat-card"><div class="stat-label">Casados</div><div class="stat-value">${casados}</div><div class="stat-sub">${total?Math.round(casados/total*100):0}% do total</div></div>
+    <div class="stat-card"><div class="stat-label">Liderança</div><div class="stat-value">${lideres}</div><div class="stat-sub">Pastor + Líderes</div></div>`;
+  setTimeout(()=>{
+    const cargos=['Pastor','Líder','Líder em Treinamento','Diácono','Membro'];
+    const cargoColors=['#c9a84c','#4caa6e','#6ab0e8','#c8926a','#666'];
+    const cargoVals=cargos.map(c=>membros.filter(m=>m.cargo===c).length);
+    drawDonut('chart-cargos',cargos,cargoVals,cargoColors);
+    makeLegend('legend-cargos',cargos,cargoVals,cargoColors);
+    const civilLabels=['Casado(a)','Solteiro(a)','Viúvo(a)','Divorciado(a)'];
+    const civilColors=['#4caa6e','#c9a84c','#888','#c94c4c'];
+    const civilVals=[membros.filter(m=>m.casado==='Sim').length,membros.filter(m=>!m.casado||m.casado==='Não').length,membros.filter(m=>m.casado==='Viúvo').length,membros.filter(m=>m.casado==='Divorciado').length];
+    drawDonut('chart-civil',civilLabels,civilVals,civilColors);
+    makeLegend('legend-civil',civilLabels,civilVals,civilColors);
+    const allC=[...new Set([...celulas.map(c=>c.nome),...membros.filter(m=>m.celula).map(m=>m.celula)])].filter(Boolean);
+    drawBar('chart-celulas',allC,allC.map(n=>membros.filter(m=>m.celula===n).length),'#c9a84c');
+    const anos={};membros.forEach(m=>{if(m.batismo){const y=m.batismo.slice(0,4);anos[y]=(anos[y]||0)+1;}});
+    const anoKeys=Object.keys(anos).sort();
+    drawBar('chart-batismos',anoKeys,anoKeys.map(k=>anos[k]),'#4caa6e');
+  },50);
+}
+
+// ─── EXPORT EXCEL ───
+function exportExcel() {
+  const membros=getMembros();
+  if(!membros.length){toast('⚠ Nenhum membro para exportar');return;}
+  const rows=membros.map(m=>({'Nome':m.nome||'','Cargo':m.cargo||'','Célula':m.celula||'','Telefone':m.tel||'','E-mail':m.email||'','Data de Batismo':m.batismo?formatDate(m.batismo):'','Estado Civil':m.casado==='Sim'?'Casado(a)':m.casado==='Viúvo'?'Viúvo(a)':m.casado==='Divorciado'?'Divorciado(a)':'Solteiro(a)','Endereço':m.endereco||''}));
+  const ws=XLSX.utils.json_to_sheet(rows);
+  ws['!cols']=[28,22,20,18,28,18,16,30].map(w=>({wch:w}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Membros');
+  const celulas=getCelulas();
+  if(celulas.length){
+    const cwRows=celulas.map(c=>({'Célula':c.nome||'','Líder':c.lider||'','Reunião':c.dia||'','Local':c.endereco||'','Membros':membros.filter(m=>m.celula===c.nome).length}));
+    const ws2=XLSX.utils.json_to_sheet(cwRows);ws2['!cols']=[22,22,18,24,10].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws2,'Células');
+  }
+  const date=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+  XLSX.writeFile(wb,`IBaRC_Membros_${date}.xlsx`);
+  toast('✦ Excel exportado com sucesso!');
+}
+
+// ─── ANIVERSARIANTES ───
+function getAniversariantes() {
+  const membros = getMembros();
+  const hoje = new Date();
+  const diaHoje = hoje.getDate();
+  const mesHoje = hoje.getMonth() + 1;
+
+  const comData = membros.filter(m => m.nascimento && m.nascimento.length >= 7);
+
+  const doMes = comData.filter(m => {
+    const partes = (m.nascimento||'').split('-');
+    return parseInt(partes[1]) === mesHoje;
+  }).sort((a,b) => {
+    const dA = parseInt((a.nascimento||'').split('-')[2]||0);
+    const dB = parseInt((b.nascimento||'').split('-')[2]||0);
+    return dA - dB;
+  });
+
+  const deHoje = comData.filter(m => {
+    const partes = (m.nascimento||'').split('-');
+    return parseInt(partes[1]) === mesHoje && parseInt(partes[2]) === diaHoje;
+  });
+
+  return { doMes, deHoje };
+}
+
+function renderAniversariantes() {
+  const wrap = document.getElementById('aniversariantes-wrap');
+  if(!wrap) return;
+  const { doMes, deHoje } = getAniversariantes();
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const hoje = new Date();
+  const mesNome = meses[hoje.getMonth()];
+
+  if(!doMes.length) {
+    wrap.innerHTML = `<div class="birthday-banner" style="text-align:center;color:var(--muted);font-size:0.8rem">
+      📅 Nenhum aniversariante em ${mesNome} — cadastre a data de nascimento dos membros para ver aqui.
+    </div>`;
+    return;
+  }
+
+  const hojeHtml = deHoje.length ? `
+    <div style="margin-bottom:16px">
+      <div class="birthday-section-title">🎂 Aniversariantes de Hoje — ${hoje.getDate()} de ${mesNome}</div>
+      <div class="birthday-list">
+        ${deHoje.map(m=>`
+          <div class="birthday-card hoje">
+            <span class="birthday-emoji">🎉</span>
+            <div>
+              <div class="birthday-name">${m.nome}</div>
+              <div class="birthday-date">${m.cargo||'Membro'} · ${m.celula||'Sem célula'}</div>
+            </div>
+            <span class="birthday-hoje-tag">Hoje!</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  const mesHtml = `
+    <div>
+      <div class="birthday-section-title">📅 Todos os Aniversariantes de ${mesNome} (${doMes.length})</div>
+      <div class="birthday-list">
+        ${doMes.map(m=>{
+          const partes = (m.nascimento||'').split('-');
+          const dia = parseInt(partes[2]||0);
+          const isHoje = dia === hoje.getDate();
+          return`<div class="birthday-card ${isHoje?'hoje':''}">
+            <span class="birthday-emoji">${isHoje?'🎂':'🎈'}</span>
+            <div>
+              <div class="birthday-name">${m.nome}</div>
+              <div class="birthday-date">Dia ${dia} · ${m.cargo||'Membro'}</div>
+            </div>
+            ${isHoje?'<span class="birthday-hoje-tag">Hoje!</span>':''}
+          </div>`;}).join('')}
+      </div>
+    </div>`;
+
+  wrap.innerHTML = `<div class="birthday-banner">${hojeHtml}${mesHtml}</div>`;
+
+  // Notificação flutuante apenas para aniversários de hoje
+  showBdayNotif(deHoje);
+}
+
+function showBdayNotif(deHoje) {
+  const existing = document.getElementById('bday-notif');
+  if(existing) existing.remove();
+  if(!deHoje.length) return;
+
+  const notif = document.createElement('div');
+  notif.className = 'bday-notif';
+  notif.id = 'bday-notif';
+  notif.innerHTML = `
+    <div class="bday-notif-header">
+      <div class="bday-notif-title">🎂 Aniversário Hoje!</div>
+      <button class="bday-notif-close" onclick="document.getElementById('bday-notif').remove()">✕</button>
+    </div>
+    ${deHoje.map(m=>`
+      <div class="bday-notif-item">
+        <span>🎉</span>
+        <span>${m.nome.split(' ')[0]} ${m.nome.split(' ').slice(-1)[0]}</span>
+        <span style="color:var(--muted);font-size:0.68rem;margin-left:auto">${m.celula||''}</span>
+      </div>`).join('')}
+    <div style="font-size:0.68rem;color:var(--muted);margin-top:8px;text-align:center">Clique para fechar</div>`;
+  notif.onclick = () => notif.remove();
+  document.body.appendChild(notif);
+  setTimeout(() => { if(notif.parentNode) notif.remove(); }, 8000);
+}
+
+// ─── EXPOSE TO WINDOW (needed for onclick in HTML) ───
+window.goPage        = goPage;
+window.openModal     = openModal;
+window.editMembro    = openModal;
+window.saveMembro    = saveMembro;
+window.deleteMembro  = deleteMembro;
+window.closeModal    = closeModal;
+window.openCelulaModal = openCelulaModal;
+window.editCelula    = openCelulaModal;
+window.saveCelula    = saveCelula;
+window.deleteCelula  = deleteCelula;
+window.renderMembros = renderMembros;
+window.renderCelulas = renderCelulas;
+window.exportExcel   = exportExcel;
+window.renderAniversariantes = renderAniversariantes;
+
+// ─── INIT ───
+renderPainel();
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Igreja Reviver em Cristo — Gestão de Membros</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --bg:       #080808;
+  --surface:  #0f0f0f;
+  --surface2: #161616;
+  --surface3: #1e1e1e;
+  --border:   #2a2a2a;
+  --border2:  #333;
+  --gold:     #c9a84c;
+  --gold2:    #e8c96a;
+  --gold3:    #f5dfa0;
+  --golddim:  rgba(201,168,76,0.15);
+  --text:     #f0ece0;
+  --muted:    #666;
+  --muted2:   #999;
+  --red:      #c94c4c;
+  --green:    #4caa6e;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* BG texture */
+body::before {
+  content:'';
+  position:fixed;inset:0;
+  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(201,168,76,0.07), transparent);
+  pointer-events:none;z-index:0;
+}
+
+/* ─── LAYOUT ─── */
+.app { display:flex; min-height:100vh; position:relative; z-index:1; }
+
+/* ─── SIDEBAR ─── */
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top:0;left:0;bottom:0;
+  z-index: 100;
+}
+
+.sidebar-logo {
+  padding: 20px 24px 18px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+.logo-svg-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  filter: drop-shadow(0 0 12px rgba(201,168,76,0.3));
+}
+
+.sidebar-logo h1 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--gold2);
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+}
+
+.sidebar-logo p {
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.cross-icon {
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--gold);
+  font-size: 1.1rem;
+}
+
+nav { padding: 16px 12px; flex:1; }
+
+.nav-group-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 10px;
+  margin: 12px 0 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted2);
+  transition: all 0.15s;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+}
+
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+
+.nav-item.active {
+  background: var(--golddim);
+  border-color: rgba(201,168,76,0.25);
+  color: var(--gold2);
+}
+
+.nav-icon { font-size: 1rem; width: 20px; text-align: center; }
+
+.sidebar-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+/* ─── MAIN ─── */
+.main {
+  margin-left: 240px;
+  flex: 1;
+  padding: 32px;
+  min-height: 100vh;
+}
+
+.page { display:none; animation: fadeIn 0.3s ease; }
+.page.active { display:block; }
+
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+/* ─── PAGE HEADER ─── */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--gold3);
+  letter-spacing: 0.02em;
+}
+
+.page-sub {
+  font-size: 0.72rem;
+  color: var(--muted2);
+  margin-top: 4px;
+  letter-spacing: 0.06em;
+}
+
+/* ─── BUTTONS ─── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 6px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+  letter-spacing: 0.04em;
+}
+
+.btn-gold {
+  background: var(--gold);
+  color: #080808;
+}
+.btn-gold:hover { background: var(--gold2); }
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--muted2);
+}
+.btn-outline:hover { border-color: var(--gold); color: var(--gold); }
+
+.btn-danger {
+  background: transparent;
+  border: 1px solid rgba(201,76,76,0.3);
+  color: var(--red);
+  padding: 6px 12px;
+  font-size: 0.72rem;
+}
+.btn-danger:hover { background: rgba(201,76,76,0.1); }
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 0.7rem;
+}
+
+/* ─── STAT CARDS ─── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.stat-card::after {
+  content:'';
+  position:absolute;
+  top:0;left:0;right:0;
+  height:2px;
+  background: linear-gradient(90deg, var(--gold), transparent);
+}
+
+.stat-card:hover { border-color: rgba(201,168,76,0.3); }
+
+.stat-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.stat-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: var(--gold2);
+  line-height: 1;
+}
+
+.stat-sub { font-size: 0.68rem; color: var(--muted2); margin-top: 8px; }
+
+/* ─── SEARCH & FILTER BAR ─── */
+.toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 220px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8rem;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.search-input::placeholder { color: var(--muted); }
+.search-input:focus { border-color: var(--gold); }
+
+select.filter-select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.78rem;
+  color: var(--muted2);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+select.filter-select:focus { border-color: var(--gold); color: var(--text); }
+
+/* ─── TABLE ─── */
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.table-scroll { overflow-x: auto; }
+
+table { width:100%; border-collapse:collapse; }
+
+thead tr { background: var(--surface2); }
+
+th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody tr {
+  border-bottom: 1px solid rgba(42,42,42,0.7);
+  transition: background 0.12s;
+}
+
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: rgba(201,168,76,0.04); }
+
+td {
+  padding: 13px 16px;
+  font-size: 0.78rem;
+  color: var(--muted2);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.td-name {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.td-actions { display:flex; gap:6px; }
+
+/* ─── BADGES ─── */
+.badge {
+  display:inline-block;
+  padding:3px 10px;
+  border-radius:20px;
+  font-size:0.62rem;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  font-weight:500;
+  white-space:nowrap;
+}
+
+.badge-pastor   { background:rgba(201,168,76,0.15); color:var(--gold2);  border:1px solid rgba(201,168,76,0.3); }
+.badge-lider    { background:rgba(76,170,110,0.12); color:#4caa6e;       border:1px solid rgba(76,170,110,0.25); }
+.badge-lider-t  { background:rgba(76,130,200,0.12); color:#6ab0e8;       border:1px solid rgba(76,130,200,0.25); }
+.badge-diacono  { background:rgba(180,130,76,0.12); color:#c8926a;       border:1px solid rgba(180,130,76,0.25); }
+.badge-membro   { background:rgba(80,80,80,0.2);    color:var(--muted2); border:1px solid var(--border2); }
+.badge-sim      { background:rgba(76,170,110,0.12); color:#4caa6e;       border:1px solid rgba(76,170,110,0.25); }
+.badge-nao      { background:rgba(80,80,80,0.15);   color:var(--muted);  border:1px solid var(--border); }
+
+/* ─── AVATAR ─── */
+.avatar {
+  width:32px;height:32px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:0.65rem;font-weight:700;
+  background:rgba(201,168,76,0.12);
+  color:var(--gold);
+  border:1px solid rgba(201,168,76,0.25);
+  margin-right:10px;flex-shrink:0;font-family:'Cormorant Garamond',serif;
+  font-size:0.9rem;
+}
+
+.name-cell { display:flex;align-items:center; }
+
+/* ─── MODAL ─── */
+.modal-overlay {
+  display:none;
+  position:fixed;inset:0;
+  background:rgba(0,0,0,0.75);
+  backdrop-filter:blur(4px);
+  z-index:500;
+  align-items:center;justify-content:center;
+}
+
+.modal-overlay.open { display:flex; }
+
+.modal {
+  background:var(--surface);
+  border:1px solid rgba(201,168,76,0.25);
+  border-radius:12px;
+  width:90%;max-width:600px;
+  max-height:90vh;
+  overflow-y:auto;
+  animation:modalIn 0.2s ease;
+  box-shadow:0 0 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,168,76,0.1);
+}
+
+@keyframes modalIn {
+  from{opacity:0;transform:scale(0.95) translateY(10px)}
+  to{opacity:1;transform:scale(1) translateY(0)}
+}
+
+.modal-header {
+  display:flex;justify-content:space-between;align-items:center;
+  padding:22px 26px;
+  border-bottom:1px solid var(--border);
+}
+
+.modal-title {
+  font-family:'Cormorant Garamond',serif;
+  font-size:1.4rem;font-weight:600;
+  color:var(--gold3);
+}
+
+.modal-close {
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  font-size:1.3rem;line-height:1;padding:4px;
+  transition:color 0.15s;
+}
+.modal-close:hover { color:var(--text); }
+
+.modal-body { padding:24px 26px; }
+
+.form-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px; }
+.form-grid .full { grid-column:1/-1; }
+
+.form-group { display:flex;flex-direction:column;gap:6px; }
+
+.form-label {
+  font-size:0.65rem;letter-spacing:0.12em;text-transform:uppercase;
+  color:var(--muted2);font-weight:500;
+}
+
+.form-input, .form-select {
+  background:var(--surface2);
+  border:1px solid var(--border2);
+  border-radius:6px;
+  padding:9px 12px;
+  font-family:'Outfit',sans-serif;font-size:0.82rem;
+  color:var(--text);outline:none;
+  transition:border-color 0.15s;
+  width:100%;
+}
+
+.form-input::placeholder { color:var(--muted); }
+.form-input:focus,.form-select:focus { border-color:var(--gold); }
+
+.modal-footer {
+  display:flex;justify-content:flex-end;gap:10px;
+  padding:16px 26px;
+  border-top:1px solid var(--border);
+}
+
+/* ─── CÉLULA CARDS ─── */
+.celulas-grid {
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px;
+}
+
+.celula-card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;
+  transition:border-color 0.2s,transform 0.2s;
+}
+
+.celula-card:hover { border-color:rgba(201,168,76,0.3);transform:translateY(-2px); }
+
+.celula-card-header {
+  background:var(--surface2);
+  padding:16px 20px;
+  border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+
+.celula-name {
+  font-family:'Cormorant Garamond',serif;
+  font-size:1.15rem;font-weight:600;color:var(--gold2);
+}
+
+.celula-count {
+  background:var(--golddim);
+  border:1px solid rgba(201,168,76,0.2);
+  color:var(--gold);
+  font-size:0.65rem;
+  padding:3px 10px;border-radius:20px;
+  letter-spacing:0.08em;
+}
+
+.celula-card-body { padding:16px 20px; }
+
+.celula-lider {
+  font-size:0.72rem;color:var(--muted2);margin-bottom:12px;
+}
+
+.celula-lider span { color:var(--text); }
+
+.celula-membros {
+  display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;min-height:30px;
+}
+
+.celula-membro-tag {
+  font-size:0.65rem;padding:3px 10px;
+  background:var(--surface3);
+  border:1px solid var(--border);
+  border-radius:4px;color:var(--muted2);
+}
+
+.celula-actions { display:flex;gap:8px; }
+
+/* ─── EMPTY STATE ─── */
+.empty-state {
+  text-align:center;padding:60px 20px;
+  color:var(--muted);
+}
+
+.empty-state .empty-icon { font-size:2.5rem;margin-bottom:12px;opacity:0.4; }
+.empty-state p { font-size:0.82rem;line-height:1.6; }
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ─── TOAST ─── */
+.toast {
+  position:fixed;bottom:24px;right:24px;
+  background:var(--surface2);
+  border:1px solid rgba(201,168,76,0.3);
+  color:var(--gold3);
+  padding:12px 20px;border-radius:8px;
+  font-size:0.78rem;letter-spacing:0.04em;
+  z-index:999;
+  animation:toastIn 0.2s ease;
+  box-shadow:0 4px 20px rgba(0,0,0,0.4);
+}
+
+@keyframes toastIn {
+  from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+/* ─── DIVIDER ─── */
+.gold-divider {
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(201,168,76,0.4),transparent);
+  margin:24px 0;
+}
+
+/* ─── ANIVERSARIANTES ─── */
+.birthday-banner {
+  background: linear-gradient(135deg, rgba(201,168,76,0.08), rgba(201,168,76,0.03));
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 10px;
+  padding: 18px 22px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.birthday-banner::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold), var(--gold2), transparent);
+}
+
+.birthday-section-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gold2);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.04em;
+}
+
+.birthday-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.birthday-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 8px 14px;
+  transition: border-color 0.2s;
+}
+
+.birthday-card.hoje {
+  border-color: rgba(201,168,76,0.5);
+  background: rgba(201,168,76,0.07);
+  animation: birthdayPulse 2s infinite;
+}
+
+@keyframes birthdayPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(201,168,76,0.2); }
+  50%      { box-shadow: 0 0 0 6px rgba(201,168,76,0); }
+}
+
+.birthday-emoji { font-size: 1.1rem; }
+.birthday-name  { font-size: 0.8rem; color: var(--text); font-weight: 500; }
+.birthday-date  { font-size: 0.68rem; color: var(--muted2); }
+.birthday-hoje-tag {
+  font-size: 0.58rem; padding: 2px 7px; border-radius: 10px;
+  background: var(--gold); color: #080808; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+/* Floating notification */
+.bday-notif {
+  position: fixed;
+  top: 20px; right: 20px;
+  background: var(--surface);
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 12px;
+  padding: 14px 18px;
+  z-index: 900;
+  max-width: 300px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(201,168,76,0.1);
+  animation: slideInRight 0.4s ease;
+  cursor: pointer;
+}
+
+@keyframes slideInRight {
+  from { opacity:0; transform: translateX(20px); }
+  to   { opacity:1; transform: translateX(0); }
+}
+
+.bday-notif-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+
+.bday-notif-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 0.95rem; font-weight: 700; color: var(--gold2);
+}
+
+.bday-notif-close {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 1rem; line-height: 1;
+  transition: color 0.15s;
+}
+.bday-notif-close:hover { color: var(--text); }
+
+.bday-notif-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; color: var(--muted2);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(42,42,42,0.5);
+}
+.bday-notif-item:last-child { border-bottom: none; }
+.bday-notif-item span { color: var(--text); font-weight: 500; }
+
+@media(max-width:768px){
+  .sidebar{width:200px}
+  .main{margin-left:200px;padding:20px}
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+  .form-grid{grid-template-columns:1fr}
+}
+
+@media(max-width:580px){
+  .sidebar{display:none}
+  .main{margin-left:0}
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-svg-wrap">
+        <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="28" cy="28" r="27" stroke="#c9a84c" stroke-width="1.5" opacity="0.4"/>
+          <circle cx="28" cy="28" r="22" stroke="#c9a84c" stroke-width="0.8" opacity="0.2"/>
+          <!-- Cruz -->
+          <rect x="25.5" y="10" width="5" height="26" rx="2" fill="#c9a84c"/>
+          <rect x="15" y="19" width="26" height="5" rx="2" fill="#c9a84c"/>
+          <!-- Brilho -->
+          <circle cx="28" cy="28" r="3" fill="#f5dfa0" opacity="0.6"/>
+          <!-- Raios decorativos -->
+          <line x1="28" y1="4" x2="28" y2="8" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+          <line x1="28" y1="48" x2="28" y2="52" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+          <line x1="4" y1="28" x2="8" y2="28" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+          <line x1="48" y1="28" x2="52" y2="28" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+        </svg>
+      </div>
+      <h1>IBaRC</h1>
+      <p>Igreja Batista Reviver em Cristo</p>
+    </div>
+    <nav>
+      <div class="nav-group-label">Menu</div>
+      <div class="nav-item active" onclick="goPage('painel',this)">
+        <span class="nav-icon">◈</span> Painel Geral
+      </div>
+      <div class="nav-item" onclick="goPage('dashboard',this)">
+        <span class="nav-icon">◉</span> Dashboard
+      </div>
+      <div class="nav-item" onclick="goPage('membros',this)">
+        <span class="nav-icon">✦</span> Membros
+      </div>
+      <div class="nav-item" onclick="goPage('celulas',this)">
+        <span class="nav-icon">❖</span> Células
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      v1.0 · ☁ Dados na nuvem
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ══ PAINEL ══ -->
+    <div id="page-painel" class="page active">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Painel Geral</div>
+          <div class="page-sub">Visão geral da congregação</div>
+        </div>
+      </div>
+
+      <div class="stats-row" id="stats-row"></div>
+
+      <!-- ANIVERSARIANTES -->
+      <div id="aniversariantes-wrap"></div>
+
+      <div class="gold-divider"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" id="painel-tables">
+      </div>
+    </div>
+
+    <!-- ══ DASHBOARD ══ -->
+    <div id="page-dashboard" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Dashboard</div>
+          <div class="page-sub">Controle visual da congregação</div>
+        </div>
+      </div>
+      <div class="stats-row" id="dash-stats"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+        <!-- Gráfico Cargos -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Distribuição por Cargo</div>
+          <canvas id="chart-cargos" height="220"></canvas>
+          <div id="legend-cargos" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px"></div>
+        </div>
+        <!-- Gráfico Casados x Solteiros -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Estado Civil</div>
+          <canvas id="chart-civil" height="220"></canvas>
+          <div id="legend-civil" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px"></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <!-- Gráfico Células -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Membros por Célula</div>
+          <canvas id="chart-celulas" height="220"></canvas>
+        </div>
+        <!-- Gráfico Batismos por Ano -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Batismos por Ano</div>
+          <canvas id="chart-batismos" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ MEMBROS ══ -->
+    <div id="page-membros" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Membros</div>
+          <div class="page-sub" id="membros-count-sub">Cadastro completo</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn btn-outline" onclick="exportExcel()">⬇ Exportar Excel</button>
+          <button class="btn btn-gold" onclick="openModal()">✦ Novo Membro</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <input class="search-input" id="search-membros" placeholder="🔍  Buscar por nome, cargo, célula..." oninput="renderMembros()">
+        <select class="filter-select" id="filter-cargo" onchange="renderMembros()">
+          <option value="">Todos os Cargos</option>
+          <option>Pastor</option>
+          <option>Líder</option>
+          <option>Líder em Treinamento</option>
+          <option>Diácono</option>
+          <option>Membro</option>
+        </select>
+        <select class="filter-select" id="filter-celula-m" onchange="renderMembros()">
+          <option value="">Todas as Células</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Cargo</th>
+                <th>Célula</th>
+                <th>Batismo</th>
+                <th>Casado(a)</th>
+                <th>Telefone</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-membros"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ CÉLULAS ══ -->
+    <div id="page-celulas" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Células</div>
+          <div class="page-sub" id="celulas-count-sub">Grupos de comunhão</div>
+        </div>
+        <button class="btn btn-gold" onclick="openCelulaModal()">✦ Nova Célula</button>
+      </div>
+
+      <div class="toolbar">
+        <input class="search-input" id="search-celulas" placeholder="🔍  Buscar célula..." oninput="renderCelulas()" style="max-width:320px">
+      </div>
+
+      <div class="celulas-grid" id="celulas-grid"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- LOADING SCREEN -->
+<div id="loading-screen" style="position:fixed;inset:0;background:#080808;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+  <svg width="60" height="60" viewBox="0 0 56 56" fill="none">
+    <circle cx="28" cy="28" r="27" stroke="#c9a84c" stroke-width="1.5" opacity="0.4"/>
+    <rect x="25.5" y="10" width="5" height="26" rx="2" fill="#c9a84c"/>
+    <rect x="15" y="19" width="26" height="5" rx="2" fill="#c9a84c"/>
+    <circle cx="28" cy="28" r="3" fill="#f5dfa0" opacity="0.8"/>
+  </svg>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:1.4rem;color:#e8c96a;letter-spacing:0.1em">IBaRC</div>
+  <div style="font-size:0.75rem;color:#666;letter-spacing:0.1em">Conectando...</div>
+  <div style="width:160px;height:2px;background:#1e1e1e;border-radius:2px;overflow:hidden;margin-top:8px">
+    <div id="loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a84c,#f5dfa0);border-radius:2px;transition:width 0.3s"></div>
+  </div>
+  <div id="loading-msg" style="font-size:0.68rem;color:#555;margin-top:4px">Aguarde...</div>
+</div>
+<div class="modal-overlay" id="modal-membro">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-membro-title">Novo Membro</div>
+      <button class="modal-close" onclick="closeModal('modal-membro')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label class="form-label">Nome Completo *</label>
+          <input class="form-input" id="f-nome" placeholder="Nome completo do membro">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Telefone</label>
+          <input class="form-input" id="f-tel" placeholder="(00) 00000-0000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">E-mail</label>
+          <input class="form-input" id="f-email" placeholder="email@exemplo.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cargo na Igreja *</label>
+          <select class="form-select" id="f-cargo">
+            <option value="">Selecione...</option>
+            <option>Pastor</option>
+            <option>Líder</option>
+            <option>Líder em Treinamento</option>
+            <option>Diácono</option>
+            <option>Membro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Célula (selecione)</label>
+          <select class="form-select" id="f-celula">
+            <option value="">Sem célula</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nome da Célula (digitar)</label>
+          <input class="form-input" id="f-celula-nome" placeholder="Ex: Célula Betel, Grupo Alfa...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data de Nascimento 🎂</label>
+          <input class="form-input" type="date" id="f-nascimento">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data de Batismo</label>
+          <input class="form-input" type="date" id="f-batismo">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Estado Civil</label>
+          <select class="form-select" id="f-casado">
+            <option value="Não">Solteiro(a)</option>
+            <option value="Sim">Casado(a)</option>
+            <option value="Viúvo">Viúvo(a)</option>
+            <option value="Divorciado">Divorciado(a)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Endereço</label>
+          <input class="form-input" id="f-end" placeholder="Rua, número, bairro">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-membro')">Cancelar</button>
+      <button class="btn btn-gold" onclick="saveMembro()">Salvar Membro</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL CÉLULA ══ -->
+<div class="modal-overlay" id="modal-celula">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-celula-title">Nova Célula</div>
+      <button class="modal-close" onclick="closeModal('modal-celula')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" style="grid-template-columns:1fr">
+        <div class="form-group">
+          <label class="form-label">Nome da Célula *</label>
+          <input class="form-input" id="fc-nome" placeholder="Ex: Célula Betel, Grupo Alfa...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Líder Responsável</label>
+          <select class="form-select" id="fc-lider">
+            <option value="">Selecione um líder...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Dia de Reunião</label>
+          <select class="form-select" id="fc-dia">
+            <option value="">Selecione...</option>
+            <option>Segunda-feira</option>
+            <option>Terça-feira</option>
+            <option>Quarta-feira</option>
+            <option>Quinta-feira</option>
+            <option>Sexta-feira</option>
+            <option>Sábado</option>
+            <option>Domingo</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Endereço de Reunião</label>
+          <input class="form-input" id="fc-end" placeholder="Local onde se reúne">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-celula')">Cancelar</button>
+      <button class="btn btn-gold" onclick="saveCelula()">Salvar Célula</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// ─── FIREBASE ───
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDL8pCy0QiFSTeSV0Yr7OuQtTrXdS9zQUU",
+  authDomain: "ibarc-a9e3a.firebaseapp.com",
+  projectId: "ibarc-a9e3a",
+  storageBucket: "ibarc-a9e3a.firebasestorage.app",
+  messagingSenderId: "768968111245",
+  appId: "1:768968111245:web:10d8d37e08a1846e82dec4"
+};
+
+const fireApp = initializeApp(firebaseConfig);
+const db = getFirestore(fireApp);
+
+// ─── LOADING ───
+let membrosLoaded = false;
+let celulosLoaded = false;
+
+function updateLoading(msg, pct) {
+  const bar = document.getElementById('loading-bar');
+  const txt = document.getElementById('loading-msg');
+  if(bar) bar.style.width = pct + '%';
+  if(txt) txt.textContent = msg;
+}
+
+function checkAllLoaded() {
+  if(membrosLoaded && celulosLoaded) {
+    updateLoading('Pronto!', 100);
+    setTimeout(() => {
+      const ls = document.getElementById('loading-screen');
+      if(ls) { ls.style.opacity='0'; ls.style.transition='opacity 0.4s'; setTimeout(()=>ls.remove(),400); }
+    }, 400);
+  }
+}
+
+// ─── STATE ───
+let _membros = [];
+let _celulas = [];
+let editingMembroId = null;
+let editingCelulaId = null;
+
+const getMembros = () => _membros;
+const getCelulas = () => _celulas;
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+const fbSetMembro  = m  => setDoc(doc(db,'membros',m.id), m);
+const fbDelMembro  = id => deleteDoc(doc(db,'membros',id));
+const fbSetCelula  = c  => setDoc(doc(db,'celulas',c.id), c);
+const fbDelCelula  = id => deleteDoc(doc(db,'celulas',id));
+
+// ─── REALTIME LISTENERS ───
+updateLoading('Carregando membros...', 30);
+onSnapshot(collection(db,'membros'), snap => {
+  _membros = snap.docs.map(d => d.data());
+  membrosLoaded = true;
+  updateLoading('Membros carregados!', 60);
+  checkAllLoaded();
+  renderMembros();
+  renderPainel();
+  if(document.getElementById('page-dashboard').classList.contains('active')) renderDashboard();
+}, err => {
+  updateLoading('Erro ao conectar: ' + err.message, 0);
+});
+
+updateLoading('Carregando células...', 50);
+onSnapshot(collection(db,'celulas'), snap => {
+  _celulas = snap.docs.map(d => d.data());
+  celulosLoaded = true;
+  updateLoading('Células carregadas!', 80);
+  checkAllLoaded();
+  renderCelulas();
+  renderPainel();
+}, err => {
+  updateLoading('Erro: ' + err.message, 0);
+});
+
+// ─── NAVIGATION ───
+function goPage(page, el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  if(el) el.classList.add('active');
+  if(page==='membros')   renderMembros();
+  if(page==='celulas')   renderCelulas();
+  if(page==='painel')    renderPainel();
+  if(page==='dashboard') renderDashboard();
+}
+
+// ─── BADGES ───
+function cargoBadge(c) {
+  const map = {'Pastor':'badge-pastor','Líder':'badge-lider','Líder em Treinamento':'badge-lider-t','Diácono':'badge-diacono','Membro':'badge-membro'};
+  return `<span class="badge ${map[c]||'badge-membro'}">${c||'Membro'}</span>`;
+}
+function casadoBadge(v) {
+  if(v==='Sim')       return `<span class="badge badge-sim">Casado(a)</span>`;
+  if(v==='Viúvo')     return `<span class="badge badge-membro">Viúvo(a)</span>`;
+  if(v==='Divorciado')return `<span class="badge badge-membro">Divorciado(a)</span>`;
+  return `<span class="badge badge-nao">Solteiro(a)</span>`;
+}
+function initials(name) { return name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase(); }
+function formatDate(d) { if(!d)return'—'; const[y,m,day]=d.split('-'); return`${day}/${m}/${y}`; }
+
+// ─── PAINEL ───
+function renderPainel() {
+  const membros=getMembros(), celulas=getCelulas();
+  const total=membros.length, pastores=membros.filter(m=>m.cargo==='Pastor').length;
+  const lideres=membros.filter(m=>m.cargo==='Líder'||m.cargo==='Líder em Treinamento').length;
+  const batizados=membros.filter(m=>m.batismo).length;
+
+  document.getElementById('stats-row').innerHTML=`
+    <div class="stat-card"><div class="stat-label">Total de Membros</div><div class="stat-value">${total}</div><div class="stat-sub">${celulas.length} células ativas</div></div>
+    <div class="stat-card"><div class="stat-label">Pastores</div><div class="stat-value">${pastores}</div><div class="stat-sub">Liderança pastoral</div></div>
+    <div class="stat-card"><div class="stat-label">Líderes</div><div class="stat-value">${lideres}</div><div class="stat-sub">Líder + Em treinamento</div></div>
+    <div class="stat-card"><div class="stat-label">Batizados</div><div class="stat-value">${batizados}</div><div class="stat-sub">${total?Math.round(batizados/total*100):0}% do total</div></div>`;
+
+  const cargos=['Pastor','Líder','Líder em Treinamento','Diácono','Membro'];
+  const cargoRows=cargos.map(c=>{const n=membros.filter(m=>m.cargo===c).length;
+    return`<tr><td>${cargoBadge(c)}</td><td style="color:var(--gold2);font-size:1rem;font-family:'Cormorant Garamond',serif;font-weight:700">${n}</td><td style="color:var(--muted)">${total?Math.round(n/total*100):0}%</td></tr>`;}).join('');
+
+  const celulaRows=celulas.length?celulas.map(c=>{const n=membros.filter(m=>m.celula===c.nome).length;
+    return`<tr><td class="td-name">${c.nome}</td><td style="color:var(--gold2)">${n}</td><td style="color:var(--muted)">${c.lider||'—'}</td></tr>`;}).join('')
+    :`<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:24px">Nenhuma célula cadastrada</td></tr>`;
+
+  document.getElementById('painel-tables').innerHTML=`
+    <div class="table-wrap">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3)">Por Cargo</div>
+      <table><thead><tr><th>Cargo</th><th>Membros</th><th>%</th></tr></thead><tbody>${cargoRows}</tbody></table>
+    </div>
+    <div class="table-wrap">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3)">Por Célula</div>
+      <table><thead><tr><th>Célula</th><th>Membros</th><th>Líder</th></tr></thead><tbody>${celulaRows}</tbody></table>
+    </div>`;
+
+  // sempre renderiza aniversariantes junto com o painel
+  renderAniversariantes();
+}
+
+// ─── MEMBROS ───
+function renderMembros() {
+  const membros=getMembros();
+  const search=(document.getElementById('search-membros')?.value||'').toLowerCase();
+  const filterCargo=document.getElementById('filter-cargo')?.value||'';
+  const filterCelula=document.getElementById('filter-celula-m')?.value||'';
+
+  const celulas=getCelulas();
+  const fcm=document.getElementById('filter-celula-m');
+  if(fcm){const prev=fcm.value;fcm.innerHTML='<option value="">Todas as Células</option>'+celulas.map(c=>`<option ${c.nome===prev?'selected':''}>${c.nome}</option>`).join('');}
+
+  let list=membros;
+  if(search) list=list.filter(m=>(m.nome||'').toLowerCase().includes(search)||(m.cargo||'').toLowerCase().includes(search)||(m.celula||'').toLowerCase().includes(search));
+  if(filterCargo) list=list.filter(m=>m.cargo===filterCargo);
+  if(filterCelula) list=list.filter(m=>m.celula===filterCelula);
+
+  const sub=document.getElementById('membros-count-sub');
+  if(sub) sub.textContent=`${list.length} membro(s) encontrado(s)`;
+
+  const tbody=document.getElementById('tbody-membros');
+  if(!tbody) return;
+  if(!list.length){tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">✦</div><p>Nenhum membro encontrado.<br>Clique em "Novo Membro" para cadastrar.</p></div></td></tr>`;return;}
+
+  tbody.innerHTML=list.map(m=>`
+    <tr>
+      <td><div class="name-cell"><div class="avatar">${initials(m.nome)}</div><span class="td-name">${m.nome}</span></div></td>
+      <td>${cargoBadge(m.cargo||'Membro')}</td>
+      <td>${m.celula?`<span style="color:var(--gold);font-size:0.78rem">${m.celula}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${m.batismo?formatDate(m.batismo):'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${casadoBadge(m.casado)}</td>
+      <td>${m.tel||'<span style="color:var(--muted)">—</span>'}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-outline btn-sm" onclick="window.editMembro('${m.id}')">Editar</button>
+        <button class="btn btn-danger" onclick="window.deleteMembro('${m.id}')">✕</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+function openModal(id=null) {
+  editingMembroId=id;
+  const celulas=getCelulas();
+  const fc=document.getElementById('f-celula');
+  fc.innerHTML='<option value="">Sem célula</option>'+celulas.map(c=>`<option>${c.nome}</option>`).join('');
+  if(id){
+    const m=getMembros().find(x=>x.id===id); if(!m)return;
+    document.getElementById('modal-membro-title').textContent='Editar Membro';
+    document.getElementById('f-nome').value=m.nome||'';
+    document.getElementById('f-tel').value=m.tel||'';
+    document.getElementById('f-email').value=m.email||'';
+    document.getElementById('f-cargo').value=m.cargo||'';
+    document.getElementById('f-celula').value=m.celula||'';
+    document.getElementById('f-celula-nome').value=m.celula||'';
+    document.getElementById('f-batismo').value=m.batismo||'';
+    document.getElementById('f-nascimento').value=m.nascimento||'';
+    document.getElementById('f-casado').value=m.casado||'Não';
+    document.getElementById('f-end').value=m.endereco||'';
+  } else {
+    document.getElementById('modal-membro-title').textContent='Novo Membro';
+    ['f-nome','f-tel','f-email','f-batismo','f-nascimento','f-end','f-celula-nome'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('f-cargo').value='';
+    document.getElementById('f-celula').value='';
+    document.getElementById('f-casado').value='Não';
+  }
+  document.getElementById('modal-membro').classList.add('open');
+}
+
+function saveMembro() {
+  const nome=document.getElementById('f-nome').value.trim();
+  if(!nome){toast('⚠ Informe o nome do membro');return;}
+  const cargo=document.getElementById('f-cargo').value;
+  if(!cargo){toast('⚠ Selecione o cargo');return;}
+  const celulaFinal=document.getElementById('f-celula-nome').value.trim()||document.getElementById('f-celula').value;
+  const membro={
+    id:editingMembroId||uid(), nome,
+    tel:document.getElementById('f-tel').value.trim(),
+    email:document.getElementById('f-email').value.trim(),
+    cargo, celula:celulaFinal,
+    batismo:document.getElementById('f-batismo').value,
+    nascimento:document.getElementById('f-nascimento').value,
+    casado:document.getElementById('f-casado').value,
+    endereco:document.getElementById('f-end').value.trim(),
+  };
+  fbSetMembro(membro).then(()=>{
+    toast(editingMembroId?'✦ Membro atualizado':'✦ Membro cadastrado');
+    closeModal('modal-membro');
+  }).catch(()=>toast('⚠ Erro ao salvar. Verifique a conexão.'));
+}
+
+function deleteMembro(id) {
+  if(!confirm('Remover este membro?'))return;
+  fbDelMembro(id).then(()=>toast('Membro removido')).catch(()=>toast('⚠ Erro ao remover'));
+}
+
+// ─── CÉLULAS ───
+function renderCelulas() {
+  const celulas=getCelulas(), membros=getMembros();
+  const search=(document.getElementById('search-celulas')?.value||'').toLowerCase();
+  let list=celulas;
+  if(search) list=list.filter(c=>c.nome.toLowerCase().includes(search));
+  const sub=document.getElementById('celulas-count-sub');
+  if(sub) sub.textContent=`${list.length} célula(s)`;
+  const grid=document.getElementById('celulas-grid');
+  if(!grid)return;
+  if(!list.length){grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">❖</div><p>Nenhuma célula cadastrada.<br>Clique em "Nova Célula" para criar.</p></div>`;return;}
+  grid.innerHTML=list.map(c=>{
+    const mems=membros.filter(m=>m.celula===c.nome);
+    const tags=mems.slice(0,8).map(m=>`<span class="celula-membro-tag">${m.nome.split(' ')[0]}</span>`).join('');
+    const extra=mems.length>8?`<span class="celula-membro-tag" style="color:var(--gold)">+${mems.length-8}</span>`:'';
+    return`<div class="celula-card">
+      <div class="celula-card-header"><div class="celula-name">✟ ${c.nome}</div><div class="celula-count">${mems.length} membro(s)</div></div>
+      <div class="celula-card-body">
+        <div class="celula-lider">Líder: <span>${c.lider||'Não definido'}</span></div>
+        ${c.dia?`<div class="celula-lider">Reunião: <span>${c.dia}</span></div>`:''}
+        ${c.endereco?`<div class="celula-lider" style="margin-bottom:12px">Local: <span>${c.endereco}</span></div>`:''}
+        <div class="celula-membros">${tags}${extra}${!mems.length?'<span style="color:var(--muted);font-size:0.72rem">Nenhum membro nesta célula</span>':''}</div>
+        <div class="celula-actions">
+          <button class="btn btn-outline btn-sm" onclick="window.editCelula('${c.id}')">Editar</button>
+          <button class="btn btn-danger" onclick="window.deleteCelula('${c.id}')">✕ Excluir</button>
+        </div>
+      </div></div>`;}).join('');
+}
+
+function openCelulaModal(id=null) {
+  editingCelulaId=id;
+  const membros=getMembros().filter(m=>['Líder','Líder em Treinamento','Pastor'].includes(m.cargo));
+  const fl=document.getElementById('fc-lider');
+  fl.innerHTML='<option value="">Selecione um líder...</option>'+membros.map(m=>`<option>${m.nome}</option>`).join('');
+  if(id){
+    const c=getCelulas().find(x=>x.id===id); if(!c)return;
+    document.getElementById('modal-celula-title').textContent='Editar Célula';
+    document.getElementById('fc-nome').value=c.nome||'';
+    document.getElementById('fc-lider').value=c.lider||'';
+    document.getElementById('fc-dia').value=c.dia||'';
+    document.getElementById('fc-end').value=c.endereco||'';
+  } else {
+    document.getElementById('modal-celula-title').textContent='Nova Célula';
+    ['fc-nome','fc-end'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('fc-lider').value='';
+    document.getElementById('fc-dia').value='';
+  }
+  document.getElementById('modal-celula').classList.add('open');
+}
+
+function saveCelula() {
+  const nome=document.getElementById('fc-nome').value.trim();
+  if(!nome){toast('⚠ Informe o nome da célula');return;}
+  const celula={id:editingCelulaId||uid(),nome,lider:document.getElementById('fc-lider').value,dia:document.getElementById('fc-dia').value,endereco:document.getElementById('fc-end').value.trim()};
+  if(editingCelulaId){
+    const old=getCelulas().find(c=>c.id===editingCelulaId);
+    if(old&&old.nome!==nome) getMembros().filter(m=>m.celula===old.nome).forEach(m=>fbSetMembro({...m,celula:nome}));
+  }
+  fbSetCelula(celula).then(()=>{toast(editingCelulaId?'✦ Célula atualizada':'✦ Célula criada');closeModal('modal-celula');}).catch(()=>toast('⚠ Erro ao salvar célula'));
+}
+
+function deleteCelula(id) {
+  if(!confirm('Excluir esta célula? Os membros não serão removidos, apenas desvinculados.'))return;
+  const c=getCelulas().find(x=>x.id===id);
+  if(c) getMembros().filter(m=>m.celula===c.nome).forEach(m=>fbSetMembro({...m,celula:''}));
+  fbDelCelula(id).then(()=>toast('Célula removida')).catch(()=>toast('⚠ Erro ao remover'));
+}
+
+// ─── MODAL HELPERS ───
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(o=>{
+  o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');});
+});
+
+// ─── TOAST ───
+function toast(msg) {
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);setTimeout(()=>t.remove(),2800);
+}
+
+// ─── DASHBOARD ───
+function drawDonut(canvasId,labels,values,colors) {
+  const canvas=document.getElementById(canvasId);if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width=canvas.offsetWidth||340,H=canvas.height=220;
+  ctx.clearRect(0,0,W,H);
+  const total=values.reduce((a,b)=>a+b,0);
+  if(!total){ctx.fillStyle='#444';ctx.font='14px Outfit';ctx.textAlign='center';ctx.fillText('Sem dados',W/2,H/2);return;}
+  const cx=W/2,cy=H/2,R=Math.min(cx,cy)-10,r=R*0.55;
+  let angle=-Math.PI/2;
+  values.forEach((v,i)=>{if(!v)return;const slice=(v/total)*Math.PI*2;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R,angle,angle+slice);ctx.closePath();
+    ctx.fillStyle=colors[i];ctx.fill();ctx.strokeStyle='#0f0f0f';ctx.lineWidth=2;ctx.stroke();angle+=slice;});
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fillStyle='#0f0f0f';ctx.fill();
+  ctx.fillStyle='#e8c96a';ctx.font=`bold ${Math.round(R*0.38)}px Cormorant Garamond`;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(total,cx,cy-8);ctx.fillStyle='#666';ctx.font=`${Math.round(R*0.16)}px Outfit`;ctx.fillText('total',cx,cy+14);
+}
+
+function drawBar(canvasId,labels,values,color='#c9a84c') {
+  const canvas=document.getElementById(canvasId);if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width=canvas.offsetWidth||340,H=canvas.height=220;
+  ctx.clearRect(0,0,W,H);
+  if(!values.length||!values.reduce((a,b)=>a+b,0)){ctx.fillStyle='#444';ctx.font='14px Outfit';ctx.textAlign='center';ctx.fillText('Sem dados',W/2,H/2);return;}
+  const pad={top:16,right:16,bottom:48,left:36};
+  const chartW=W-pad.left-pad.right,chartH=H-pad.top-pad.bottom,maxVal=Math.max(...values,1);
+  const gap=chartW/labels.length,barW=Math.max(8,gap*0.55);
+  [0,0.25,0.5,0.75,1].forEach(p=>{const y=pad.top+chartH*(1-p);
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(W-pad.right,y);ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#555';ctx.font='10px Outfit';ctx.textAlign='right';ctx.fillText(Math.round(maxVal*p),pad.left-4,y+4);});
+  labels.forEach((lbl,i)=>{const v=values[i],x=pad.left+gap*i+gap/2-barW/2,bH=Math.max(2,(v/maxVal)*chartH),y=pad.top+chartH-bH;
+    const grad=ctx.createLinearGradient(0,y,0,y+bH);grad.addColorStop(0,color);grad.addColorStop(1,color+'44');
+    ctx.fillStyle=grad;ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,barW,bH,4);else ctx.rect(x,y,barW,bH);ctx.fill();
+    if(v>0){ctx.fillStyle='#e8c96a';ctx.font='bold 11px Outfit';ctx.textAlign='center';ctx.fillText(v,x+barW/2,y-5);}
+    ctx.fillStyle='#888';ctx.font='10px Outfit';ctx.textAlign='center';
+    const s=lbl.length>8?lbl.slice(0,7)+'…':lbl;ctx.fillText(s,x+barW/2,H-pad.bottom+14);});
+}
+
+function makeLegend(containerId,labels,values,colors) {
+  const el=document.getElementById(containerId);if(!el)return;
+  const total=values.reduce((a,b)=>a+b,0);
+  el.innerHTML=labels.map((l,i)=>`<div style="display:flex;align-items:center;gap:6px;font-size:0.7rem;color:#999">
+    <span style="width:10px;height:10px;border-radius:50%;background:${colors[i]};flex-shrink:0"></span>
+    ${l} <span style="color:#c9a84c;font-weight:600">${values[i]}</span>
+    <span style="color:#555">(${total?Math.round(values[i]/total*100):0}%)</span></div>`).join('');
+}
+
+function renderDashboard() {
+  const membros=getMembros(),celulas=getCelulas();
+  const total=membros.length,batizados=membros.filter(m=>m.batismo).length;
+  const casados=membros.filter(m=>m.casado==='Sim').length;
+  const lideres=membros.filter(m=>['Líder','Líder em Treinamento','Pastor'].includes(m.cargo)).length;
+  document.getElementById('dash-stats').innerHTML=`
+    <div class="stat-card"><div class="stat-label">Total de Membros</div><div class="stat-value">${total}</div><div class="stat-sub">${celulas.length} células</div></div>
+    <div class="stat-card"><div class="stat-label">Batizados</div><div class="stat-value">${batizados}</div><div class="stat-sub">${total?Math.round(batizados/total*100):0}% do total</div></div>
+    <div class="stat-card"><div class="stat-label">Casados</div><div class="stat-value">${casados}</div><div class="stat-sub">${total?Math.round(casados/total*100):0}% do total</div></div>
+    <div class="stat-card"><div class="stat-label">Liderança</div><div class="stat-value">${lideres}</div><div class="stat-sub">Pastor + Líderes</div></div>`;
+  setTimeout(()=>{
+    const cargos=['Pastor','Líder','Líder em Treinamento','Diácono','Membro'];
+    const cargoColors=['#c9a84c','#4caa6e','#6ab0e8','#c8926a','#666'];
+    const cargoVals=cargos.map(c=>membros.filter(m=>m.cargo===c).length);
+    drawDonut('chart-cargos',cargos,cargoVals,cargoColors);
+    makeLegend('legend-cargos',cargos,cargoVals,cargoColors);
+    const civilLabels=['Casado(a)','Solteiro(a)','Viúvo(a)','Divorciado(a)'];
+    const civilColors=['#4caa6e','#c9a84c','#888','#c94c4c'];
+    const civilVals=[membros.filter(m=>m.casado==='Sim').length,membros.filter(m=>!m.casado||m.casado==='Não').length,membros.filter(m=>m.casado==='Viúvo').length,membros.filter(m=>m.casado==='Divorciado').length];
+    drawDonut('chart-civil',civilLabels,civilVals,civilColors);
+    makeLegend('legend-civil',civilLabels,civilVals,civilColors);
+    const allC=[...new Set([...celulas.map(c=>c.nome),...membros.filter(m=>m.celula).map(m=>m.celula)])].filter(Boolean);
+    drawBar('chart-celulas',allC,allC.map(n=>membros.filter(m=>m.celula===n).length),'#c9a84c');
+    const anos={};membros.forEach(m=>{if(m.batismo){const y=m.batismo.slice(0,4);anos[y]=(anos[y]||0)+1;}});
+    const anoKeys=Object.keys(anos).sort();
+    drawBar('chart-batismos',anoKeys,anoKeys.map(k=>anos[k]),'#4caa6e');
+  },50);
+}
+
+// ─── EXPORT EXCEL ───
+function exportExcel() {
+  const membros=getMembros();
+  if(!membros.length){toast('⚠ Nenhum membro para exportar');return;}
+  const rows=membros.map(m=>({'Nome':m.nome||'','Cargo':m.cargo||'','Célula':m.celula||'','Telefone':m.tel||'','E-mail':m.email||'','Data de Batismo':m.batismo?formatDate(m.batismo):'','Estado Civil':m.casado==='Sim'?'Casado(a)':m.casado==='Viúvo'?'Viúvo(a)':m.casado==='Divorciado'?'Divorciado(a)':'Solteiro(a)','Endereço':m.endereco||''}));
+  const ws=XLSX.utils.json_to_sheet(rows);
+  ws['!cols']=[28,22,20,18,28,18,16,30].map(w=>({wch:w}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Membros');
+  const celulas=getCelulas();
+  if(celulas.length){
+    const cwRows=celulas.map(c=>({'Célula':c.nome||'','Líder':c.lider||'','Reunião':c.dia||'','Local':c.endereco||'','Membros':membros.filter(m=>m.celula===c.nome).length}));
+    const ws2=XLSX.utils.json_to_sheet(cwRows);ws2['!cols']=[22,22,18,24,10].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws2,'Células');
+  }
+  const date=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+  XLSX.writeFile(wb,`IBaRC_Membros_${date}.xlsx`);
+  toast('✦ Excel exportado com sucesso!');
+}
+
+// ─── ANIVERSARIANTES ───
+function getAniversariantes() {
+  const membros = getMembros();
+  const hoje = new Date();
+  const diaHoje = hoje.getDate();
+  const mesHoje = hoje.getMonth() + 1;
+
+  const comData = membros.filter(m => m.nascimento && m.nascimento.length >= 7);
+
+  const doMes = comData.filter(m => {
+    const partes = (m.nascimento||'').split('-');
+    return parseInt(partes[1]) === mesHoje;
+  }).sort((a,b) => {
+    const dA = parseInt((a.nascimento||'').split('-')[2]||0);
+    const dB = parseInt((b.nascimento||'').split('-')[2]||0);
+    return dA - dB;
+  });
+
+  const deHoje = comData.filter(m => {
+    const partes = (m.nascimento||'').split('-');
+    return parseInt(partes[1]) === mesHoje && parseInt(partes[2]) === diaHoje;
+  });
+
+  return { doMes, deHoje };
+}
+
+function renderAniversariantes() {
+  const wrap = document.getElementById('aniversariantes-wrap');
+  if(!wrap) return;
+  const { doMes, deHoje } = getAniversariantes();
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const hoje = new Date();
+  const mesNome = meses[hoje.getMonth()];
+
+  if(!doMes.length) {
+    wrap.innerHTML = `<div class="birthday-banner" style="text-align:center;color:var(--muted);font-size:0.8rem">
+      📅 Nenhum aniversariante em ${mesNome} — cadastre a data de nascimento dos membros para ver aqui.
+    </div>`;
+    return;
+  }
+
+  const hojeHtml = deHoje.length ? `
+    <div style="margin-bottom:16px">
+      <div class="birthday-section-title">🎂 Aniversariantes de Hoje — ${hoje.getDate()} de ${mesNome}</div>
+      <div class="birthday-list">
+        ${deHoje.map(m=>`
+          <div class="birthday-card hoje">
+            <span class="birthday-emoji">🎉</span>
+            <div>
+              <div class="birthday-name">${m.nome}</div>
+              <div class="birthday-date">${m.cargo||'Membro'} · ${m.celula||'Sem célula'}</div>
+            </div>
+            <span class="birthday-hoje-tag">Hoje!</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  const mesHtml = `
+    <div>
+      <div class="birthday-section-title">📅 Todos os Aniversariantes de ${mesNome} (${doMes.length})</div>
+      <div class="birthday-list">
+        ${doMes.map(m=>{
+          const partes = (m.nascimento||'').split('-');
+          const dia = parseInt(partes[2]||0);
+          const isHoje = dia === hoje.getDate();
+          return`<div class="birthday-card ${isHoje?'hoje':''}">
+            <span class="birthday-emoji">${isHoje?'🎂':'🎈'}</span>
+            <div>
+              <div class="birthday-name">${m.nome}</div>
+              <div class="birthday-date">Dia ${dia} · ${m.cargo||'Membro'}</div>
+            </div>
+            ${isHoje?'<span class="birthday-hoje-tag">Hoje!</span>':''}
+          </div>`;}).join('')}
+      </div>
+    </div>`;
+
+  wrap.innerHTML = `<div class="birthday-banner">${hojeHtml}${mesHtml}</div>`;
+
+  // Notificação flutuante apenas para aniversários de hoje
+  showBdayNotif(deHoje);
+}
+
+function showBdayNotif(deHoje) {
+  const existing = document.getElementById('bday-notif');
+  if(existing) existing.remove();
+  if(!deHoje.length) return;
+
+  const notif = document.createElement('div');
+  notif.className = 'bday-notif';
+  notif.id = 'bday-notif';
+  notif.innerHTML = `
+    <div class="bday-notif-header">
+      <div class="bday-notif-title">🎂 Aniversário Hoje!</div>
+      <button class="bday-notif-close" onclick="document.getElementById('bday-notif').remove()">✕</button>
+    </div>
+    ${deHoje.map(m=>`
+      <div class="bday-notif-item">
+        <span>🎉</span>
+        <span>${m.nome.split(' ')[0]} ${m.nome.split(' ').slice(-1)[0]}</span>
+        <span style="color:var(--muted);font-size:0.68rem;margin-left:auto">${m.celula||''}</span>
+      </div>`).join('')}
+    <div style="font-size:0.68rem;color:var(--muted);margin-top:8px;text-align:center">Clique para fechar</div>`;
+  notif.onclick = () => notif.remove();
+  document.body.appendChild(notif);
+  setTimeout(() => { if(notif.parentNode) notif.remove(); }, 8000);
+}
+
+// ─── EXPOSE TO WINDOW (needed for onclick in HTML) ───
+window.goPage        = goPage;
+window.openModal     = openModal;
+window.editMembro    = openModal;
+window.saveMembro    = saveMembro;
+window.deleteMembro  = deleteMembro;
+window.closeModal    = closeModal;
+window.openCelulaModal = openCelulaModal;
+window.editCelula    = openCelulaModal;
+window.saveCelula    = saveCelula;
+window.deleteCelula  = deleteCelula;
+window.renderMembros = renderMembros;
+window.renderCelulas = renderCelulas;
+window.exportExcel   = exportExcel;
+window.renderAniversariantes = renderAniversariantes;
+
+// ─── INIT ───
+renderPainel();
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Igreja Reviver em Cristo — Gestão de Membros</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --bg:       #080808;
+  --surface:  #0f0f0f;
+  --surface2: #161616;
+  --surface3: #1e1e1e;
+  --border:   #2a2a2a;
+  --border2:  #333;
+  --gold:     #c9a84c;
+  --gold2:    #e8c96a;
+  --gold3:    #f5dfa0;
+  --golddim:  rgba(201,168,76,0.15);
+  --text:     #f0ece0;
+  --muted:    #666;
+  --muted2:   #999;
+  --red:      #c94c4c;
+  --green:    #4caa6e;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* BG texture */
+body::before {
+  content:'';
+  position:fixed;inset:0;
+  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(201,168,76,0.07), transparent);
+  pointer-events:none;z-index:0;
+}
+
+/* ─── LAYOUT ─── */
+.app { display:flex; min-height:100vh; position:relative; z-index:1; }
+
+/* ─── SIDEBAR ─── */
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top:0;left:0;bottom:0;
+  z-index: 100;
+}
+
+.sidebar-logo {
+  padding: 20px 24px 18px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+.logo-svg-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  filter: drop-shadow(0 0 12px rgba(201,168,76,0.3));
+}
+
+.sidebar-logo h1 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--gold2);
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+}
+
+.sidebar-logo p {
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.cross-icon {
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--gold);
+  font-size: 1.1rem;
+}
+
+nav { padding: 16px 12px; flex:1; }
+
+.nav-group-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 10px;
+  margin: 12px 0 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted2);
+  transition: all 0.15s;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+}
+
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+
+.nav-item.active {
+  background: var(--golddim);
+  border-color: rgba(201,168,76,0.25);
+  color: var(--gold2);
+}
+
+.nav-icon { font-size: 1rem; width: 20px; text-align: center; }
+
+.sidebar-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+/* ─── MAIN ─── */
+.main {
+  margin-left: 240px;
+  flex: 1;
+  padding: 32px;
+  min-height: 100vh;
+}
+
+.page { display:none; animation: fadeIn 0.3s ease; }
+.page.active { display:block; }
+
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+/* ─── PAGE HEADER ─── */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--gold3);
+  letter-spacing: 0.02em;
+}
+
+.page-sub {
+  font-size: 0.72rem;
+  color: var(--muted2);
+  margin-top: 4px;
+  letter-spacing: 0.06em;
+}
+
+/* ─── BUTTONS ─── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 6px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+  letter-spacing: 0.04em;
+}
+
+.btn-gold {
+  background: var(--gold);
+  color: #080808;
+}
+.btn-gold:hover { background: var(--gold2); }
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--muted2);
+}
+.btn-outline:hover { border-color: var(--gold); color: var(--gold); }
+
+.btn-danger {
+  background: transparent;
+  border: 1px solid rgba(201,76,76,0.3);
+  color: var(--red);
+  padding: 6px 12px;
+  font-size: 0.72rem;
+}
+.btn-danger:hover { background: rgba(201,76,76,0.1); }
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 0.7rem;
+}
+
+/* ─── STAT CARDS ─── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.stat-card::after {
+  content:'';
+  position:absolute;
+  top:0;left:0;right:0;
+  height:2px;
+  background: linear-gradient(90deg, var(--gold), transparent);
+}
+
+.stat-card:hover { border-color: rgba(201,168,76,0.3); }
+
+.stat-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.stat-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: var(--gold2);
+  line-height: 1;
+}
+
+.stat-sub { font-size: 0.68rem; color: var(--muted2); margin-top: 8px; }
+
+/* ─── SEARCH & FILTER BAR ─── */
+.toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 220px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8rem;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.search-input::placeholder { color: var(--muted); }
+.search-input:focus { border-color: var(--gold); }
+
+select.filter-select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 14px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.78rem;
+  color: var(--muted2);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+select.filter-select:focus { border-color: var(--gold); color: var(--text); }
+
+/* ─── TABLE ─── */
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.table-scroll { overflow-x: auto; }
+
+table { width:100%; border-collapse:collapse; }
+
+thead tr { background: var(--surface2); }
+
+th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody tr {
+  border-bottom: 1px solid rgba(42,42,42,0.7);
+  transition: background 0.12s;
+}
+
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: rgba(201,168,76,0.04); }
+
+td {
+  padding: 13px 16px;
+  font-size: 0.78rem;
+  color: var(--muted2);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.td-name {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.td-actions { display:flex; gap:6px; }
+
+/* ─── BADGES ─── */
+.badge {
+  display:inline-block;
+  padding:3px 10px;
+  border-radius:20px;
+  font-size:0.62rem;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  font-weight:500;
+  white-space:nowrap;
+}
+
+.badge-pastor   { background:rgba(201,168,76,0.15); color:var(--gold2);  border:1px solid rgba(201,168,76,0.3); }
+.badge-lider    { background:rgba(76,170,110,0.12); color:#4caa6e;       border:1px solid rgba(76,170,110,0.25); }
+.badge-lider-t  { background:rgba(76,130,200,0.12); color:#6ab0e8;       border:1px solid rgba(76,130,200,0.25); }
+.badge-diacono  { background:rgba(180,130,76,0.12); color:#c8926a;       border:1px solid rgba(180,130,76,0.25); }
+.badge-membro   { background:rgba(80,80,80,0.2);    color:var(--muted2); border:1px solid var(--border2); }
+.badge-sim      { background:rgba(76,170,110,0.12); color:#4caa6e;       border:1px solid rgba(76,170,110,0.25); }
+.badge-nao      { background:rgba(80,80,80,0.15);   color:var(--muted);  border:1px solid var(--border); }
+
+/* ─── AVATAR ─── */
+.avatar {
+  width:32px;height:32px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:0.65rem;font-weight:700;
+  background:rgba(201,168,76,0.12);
+  color:var(--gold);
+  border:1px solid rgba(201,168,76,0.25);
+  margin-right:10px;flex-shrink:0;font-family:'Cormorant Garamond',serif;
+  font-size:0.9rem;
+}
+
+.name-cell { display:flex;align-items:center; }
+
+/* ─── MODAL ─── */
+.modal-overlay {
+  display:none;
+  position:fixed;inset:0;
+  background:rgba(0,0,0,0.75);
+  backdrop-filter:blur(4px);
+  z-index:500;
+  align-items:center;justify-content:center;
+}
+
+.modal-overlay.open { display:flex; }
+
+.modal {
+  background:var(--surface);
+  border:1px solid rgba(201,168,76,0.25);
+  border-radius:12px;
+  width:90%;max-width:600px;
+  max-height:90vh;
+  overflow-y:auto;
+  animation:modalIn 0.2s ease;
+  box-shadow:0 0 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,168,76,0.1);
+}
+
+@keyframes modalIn {
+  from{opacity:0;transform:scale(0.95) translateY(10px)}
+  to{opacity:1;transform:scale(1) translateY(0)}
+}
+
+.modal-header {
+  display:flex;justify-content:space-between;align-items:center;
+  padding:22px 26px;
+  border-bottom:1px solid var(--border);
+}
+
+.modal-title {
+  font-family:'Cormorant Garamond',serif;
+  font-size:1.4rem;font-weight:600;
+  color:var(--gold3);
+}
+
+.modal-close {
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  font-size:1.3rem;line-height:1;padding:4px;
+  transition:color 0.15s;
+}
+.modal-close:hover { color:var(--text); }
+
+.modal-body { padding:24px 26px; }
+
+.form-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px; }
+.form-grid .full { grid-column:1/-1; }
+
+.form-group { display:flex;flex-direction:column;gap:6px; }
+
+.form-label {
+  font-size:0.65rem;letter-spacing:0.12em;text-transform:uppercase;
+  color:var(--muted2);font-weight:500;
+}
+
+.form-input, .form-select {
+  background:var(--surface2);
+  border:1px solid var(--border2);
+  border-radius:6px;
+  padding:9px 12px;
+  font-family:'Outfit',sans-serif;font-size:0.82rem;
+  color:var(--text);outline:none;
+  transition:border-color 0.15s;
+  width:100%;
+}
+
+.form-input::placeholder { color:var(--muted); }
+.form-input:focus,.form-select:focus { border-color:var(--gold); }
+
+.modal-footer {
+  display:flex;justify-content:flex-end;gap:10px;
+  padding:16px 26px;
+  border-top:1px solid var(--border);
+}
+
+/* ─── CÉLULA CARDS ─── */
+.celulas-grid {
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px;
+}
+
+.celula-card {
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;
+  transition:border-color 0.2s,transform 0.2s;
+}
+
+.celula-card:hover { border-color:rgba(201,168,76,0.3);transform:translateY(-2px); }
+
+.celula-card-header {
+  background:var(--surface2);
+  padding:16px 20px;
+  border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+
+.celula-name {
+  font-family:'Cormorant Garamond',serif;
+  font-size:1.15rem;font-weight:600;color:var(--gold2);
+}
+
+.celula-count {
+  background:var(--golddim);
+  border:1px solid rgba(201,168,76,0.2);
+  color:var(--gold);
+  font-size:0.65rem;
+  padding:3px 10px;border-radius:20px;
+  letter-spacing:0.08em;
+}
+
+.celula-card-body { padding:16px 20px; }
+
+.celula-lider {
+  font-size:0.72rem;color:var(--muted2);margin-bottom:12px;
+}
+
+.celula-lider span { color:var(--text); }
+
+.celula-membros {
+  display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;min-height:30px;
+}
+
+.celula-membro-tag {
+  font-size:0.65rem;padding:3px 10px;
+  background:var(--surface3);
+  border:1px solid var(--border);
+  border-radius:4px;color:var(--muted2);
+}
+
+.celula-actions { display:flex;gap:8px; }
+
+/* ─── EMPTY STATE ─── */
+.empty-state {
+  text-align:center;padding:60px 20px;
+  color:var(--muted);
+}
+
+.empty-state .empty-icon { font-size:2.5rem;margin-bottom:12px;opacity:0.4; }
+.empty-state p { font-size:0.82rem;line-height:1.6; }
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ─── TOAST ─── */
+.toast {
+  position:fixed;bottom:24px;right:24px;
+  background:var(--surface2);
+  border:1px solid rgba(201,168,76,0.3);
+  color:var(--gold3);
+  padding:12px 20px;border-radius:8px;
+  font-size:0.78rem;letter-spacing:0.04em;
+  z-index:999;
+  animation:toastIn 0.2s ease;
+  box-shadow:0 4px 20px rgba(0,0,0,0.4);
+}
+
+@keyframes toastIn {
+  from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:translateY(0)}
+}
+
+/* ─── DIVIDER ─── */
+.gold-divider {
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(201,168,76,0.4),transparent);
+  margin:24px 0;
+}
+
+/* ─── ANIVERSARIANTES ─── */
+.birthday-banner {
+  background: linear-gradient(135deg, rgba(201,168,76,0.08), rgba(201,168,76,0.03));
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 10px;
+  padding: 18px 22px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.birthday-banner::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gold), var(--gold2), transparent);
+}
+
+.birthday-section-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gold2);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.04em;
+}
+
+.birthday-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.birthday-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 8px 14px;
+  transition: border-color 0.2s;
+}
+
+.birthday-card.hoje {
+  border-color: rgba(201,168,76,0.5);
+  background: rgba(201,168,76,0.07);
+  animation: birthdayPulse 2s infinite;
+}
+
+@keyframes birthdayPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(201,168,76,0.2); }
+  50%      { box-shadow: 0 0 0 6px rgba(201,168,76,0); }
+}
+
+.birthday-emoji { font-size: 1.1rem; }
+.birthday-name  { font-size: 0.8rem; color: var(--text); font-weight: 500; }
+.birthday-date  { font-size: 0.68rem; color: var(--muted2); }
+.birthday-hoje-tag {
+  font-size: 0.58rem; padding: 2px 7px; border-radius: 10px;
+  background: var(--gold); color: #080808; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+/* Floating notification */
+.bday-notif {
+  position: fixed;
+  top: 20px; right: 20px;
+  background: var(--surface);
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 12px;
+  padding: 14px 18px;
+  z-index: 900;
+  max-width: 300px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(201,168,76,0.1);
+  animation: slideInRight 0.4s ease;
+  cursor: pointer;
+}
+
+@keyframes slideInRight {
+  from { opacity:0; transform: translateX(20px); }
+  to   { opacity:1; transform: translateX(0); }
+}
+
+.bday-notif-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+
+.bday-notif-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 0.95rem; font-weight: 700; color: var(--gold2);
+}
+
+.bday-notif-close {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 1rem; line-height: 1;
+  transition: color 0.15s;
+}
+.bday-notif-close:hover { color: var(--text); }
+
+.bday-notif-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; color: var(--muted2);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(42,42,42,0.5);
+}
+.bday-notif-item:last-child { border-bottom: none; }
+.bday-notif-item span { color: var(--text); font-weight: 500; }
+
+@media(max-width:768px){
+  .sidebar{width:200px}
+  .main{margin-left:200px;padding:20px}
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+  .form-grid{grid-template-columns:1fr}
+}
+
+@media(max-width:580px){
+  .sidebar{display:none}
+  .main{margin-left:0}
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-svg-wrap">
+        <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="28" cy="28" r="27" stroke="#c9a84c" stroke-width="1.5" opacity="0.4"/>
+          <circle cx="28" cy="28" r="22" stroke="#c9a84c" stroke-width="0.8" opacity="0.2"/>
+          <!-- Cruz -->
+          <rect x="25.5" y="10" width="5" height="26" rx="2" fill="#c9a84c"/>
+          <rect x="15" y="19" width="26" height="5" rx="2" fill="#c9a84c"/>
+          <!-- Brilho -->
+          <circle cx="28" cy="28" r="3" fill="#f5dfa0" opacity="0.6"/>
+          <!-- Raios decorativos -->
+          <line x1="28" y1="4" x2="28" y2="8" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+          <line x1="28" y1="48" x2="28" y2="52" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+          <line x1="4" y1="28" x2="8" y2="28" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+          <line x1="48" y1="28" x2="52" y2="28" stroke="#c9a84c" stroke-width="1" opacity="0.5"/>
+        </svg>
+      </div>
+      <h1>IBaRC</h1>
+      <p>Igreja Batista Reviver em Cristo</p>
+    </div>
+    <nav>
+      <div class="nav-group-label">Menu</div>
+      <div class="nav-item active" onclick="goPage('painel',this)">
+        <span class="nav-icon">◈</span> Painel Geral
+      </div>
+      <div class="nav-item" onclick="goPage('dashboard',this)">
+        <span class="nav-icon">◉</span> Dashboard
+      </div>
+      <div class="nav-item" onclick="goPage('membros',this)">
+        <span class="nav-icon">✦</span> Membros
+      </div>
+      <div class="nav-item" onclick="goPage('celulas',this)">
+        <span class="nav-icon">❖</span> Células
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      v1.0 · ☁ Dados na nuvem
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ══ PAINEL ══ -->
+    <div id="page-painel" class="page active">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Painel Geral</div>
+          <div class="page-sub">Visão geral da congregação</div>
+        </div>
+      </div>
+
+      <div class="stats-row" id="stats-row"></div>
+
+      <!-- ANIVERSARIANTES -->
+      <div id="aniversariantes-wrap"></div>
+
+      <div class="gold-divider"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" id="painel-tables">
+      </div>
+    </div>
+
+    <!-- ══ DASHBOARD ══ -->
+    <div id="page-dashboard" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Dashboard</div>
+          <div class="page-sub">Controle visual da congregação</div>
+        </div>
+      </div>
+      <div class="stats-row" id="dash-stats"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+        <!-- Gráfico Cargos -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Distribuição por Cargo</div>
+          <canvas id="chart-cargos" height="220"></canvas>
+          <div id="legend-cargos" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px"></div>
+        </div>
+        <!-- Gráfico Casados x Solteiros -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Estado Civil</div>
+          <canvas id="chart-civil" height="220"></canvas>
+          <div id="legend-civil" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px"></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <!-- Gráfico Células -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Membros por Célula</div>
+          <canvas id="chart-celulas" height="220"></canvas>
+        </div>
+        <!-- Gráfico Batismos por Ano -->
+        <div class="table-wrap" style="padding:20px">
+          <div style="font-family:'Cormorant Garamond',serif;font-size:1.1rem;color:var(--gold3);margin-bottom:16px">✦ Batismos por Ano</div>
+          <canvas id="chart-batismos" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ MEMBROS ══ -->
+    <div id="page-membros" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Membros</div>
+          <div class="page-sub" id="membros-count-sub">Cadastro completo</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn btn-outline" onclick="exportExcel()">⬇ Exportar Excel</button>
+          <button class="btn btn-gold" onclick="openModal()">✦ Novo Membro</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <input class="search-input" id="search-membros" placeholder="🔍  Buscar por nome, cargo, célula..." oninput="renderMembros()">
+        <select class="filter-select" id="filter-cargo" onchange="renderMembros()">
+          <option value="">Todos os Cargos</option>
+          <option>Pastor</option>
+          <option>Líder</option>
+          <option>Líder em Treinamento</option>
+          <option>Diácono</option>
+          <option>Membro</option>
+        </select>
+        <select class="filter-select" id="filter-celula-m" onchange="renderMembros()">
+          <option value="">Todas as Células</option>
+        </select>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Cargo</th>
+                <th>Célula</th>
+                <th>Batismo</th>
+                <th>Casado(a)</th>
+                <th>Telefone</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-membros"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ CÉLULAS ══ -->
+    <div id="page-celulas" class="page">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Células</div>
+          <div class="page-sub" id="celulas-count-sub">Grupos de comunhão</div>
+        </div>
+        <button class="btn btn-gold" onclick="openCelulaModal()">✦ Nova Célula</button>
+      </div>
+
+      <div class="toolbar">
+        <input class="search-input" id="search-celulas" placeholder="🔍  Buscar célula..." oninput="renderCelulas()" style="max-width:320px">
+      </div>
+
+      <div class="celulas-grid" id="celulas-grid"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- LOADING SCREEN -->
+<div id="loading-screen" style="position:fixed;inset:0;background:#080808;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+  <svg width="60" height="60" viewBox="0 0 56 56" fill="none">
+    <circle cx="28" cy="28" r="27" stroke="#c9a84c" stroke-width="1.5" opacity="0.4"/>
+    <rect x="25.5" y="10" width="5" height="26" rx="2" fill="#c9a84c"/>
+    <rect x="15" y="19" width="26" height="5" rx="2" fill="#c9a84c"/>
+    <circle cx="28" cy="28" r="3" fill="#f5dfa0" opacity="0.8"/>
+  </svg>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:1.4rem;color:#e8c96a;letter-spacing:0.1em">IBaRC</div>
+  <div style="font-size:0.75rem;color:#666;letter-spacing:0.1em">Conectando...</div>
+  <div style="width:160px;height:2px;background:#1e1e1e;border-radius:2px;overflow:hidden;margin-top:8px">
+    <div id="loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a84c,#f5dfa0);border-radius:2px;transition:width 0.3s"></div>
+  </div>
+  <div id="loading-msg" style="font-size:0.68rem;color:#555;margin-top:4px">Aguarde...</div>
+</div>
+<div class="modal-overlay" id="modal-membro">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-membro-title">Novo Membro</div>
+      <button class="modal-close" onclick="closeModal('modal-membro')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label class="form-label">Nome Completo *</label>
+          <input class="form-input" id="f-nome" placeholder="Nome completo do membro">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Telefone</label>
+          <input class="form-input" id="f-tel" placeholder="(00) 00000-0000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">E-mail</label>
+          <input class="form-input" id="f-email" placeholder="email@exemplo.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cargo na Igreja *</label>
+          <select class="form-select" id="f-cargo">
+            <option value="">Selecione...</option>
+            <option>Pastor</option>
+            <option>Líder</option>
+            <option>Líder em Treinamento</option>
+            <option>Diácono</option>
+            <option>Membro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Célula (selecione)</label>
+          <select class="form-select" id="f-celula">
+            <option value="">Sem célula</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nome da Célula (digitar)</label>
+          <input class="form-input" id="f-celula-nome" placeholder="Ex: Célula Betel, Grupo Alfa...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data de Nascimento 🎂</label>
+          <input class="form-input" type="date" id="f-nascimento">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data de Batismo</label>
+          <input class="form-input" type="date" id="f-batismo">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Estado Civil</label>
+          <select class="form-select" id="f-casado">
+            <option value="Não">Solteiro(a)</option>
+            <option value="Sim">Casado(a)</option>
+            <option value="Viúvo">Viúvo(a)</option>
+            <option value="Divorciado">Divorciado(a)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Endereço</label>
+          <input class="form-input" id="f-end" placeholder="Rua, número, bairro">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-membro')">Cancelar</button>
+      <button class="btn btn-gold" onclick="saveMembro()">Salvar Membro</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL CÉLULA ══ -->
+<div class="modal-overlay" id="modal-celula">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-celula-title">Nova Célula</div>
+      <button class="modal-close" onclick="closeModal('modal-celula')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid" style="grid-template-columns:1fr">
+        <div class="form-group">
+          <label class="form-label">Nome da Célula *</label>
+          <input class="form-input" id="fc-nome" placeholder="Ex: Célula Betel, Grupo Alfa...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Líder Responsável</label>
+          <select class="form-select" id="fc-lider">
+            <option value="">Selecione um líder...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Dia de Reunião</label>
+          <select class="form-select" id="fc-dia">
+            <option value="">Selecione...</option>
+            <option>Segunda-feira</option>
+            <option>Terça-feira</option>
+            <option>Quarta-feira</option>
+            <option>Quinta-feira</option>
+            <option>Sexta-feira</option>
+            <option>Sábado</option>
+            <option>Domingo</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Endereço de Reunião</label>
+          <input class="form-input" id="fc-end" placeholder="Local onde se reúne">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-celula')">Cancelar</button>
+      <button class="btn btn-gold" onclick="saveCelula()">Salvar Célula</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// ─── FIREBASE ───
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDL8pCy0QiFSTeSV0Yr7OuQtTrXdS9zQUU",
+  authDomain: "ibarc-a9e3a.firebaseapp.com",
+  projectId: "ibarc-a9e3a",
+  storageBucket: "ibarc-a9e3a.firebasestorage.app",
+  messagingSenderId: "768968111245",
+  appId: "1:768968111245:web:10d8d37e08a1846e82dec4"
+};
+
+const fireApp = initializeApp(firebaseConfig);
+const db = getFirestore(fireApp);
+
+// ─── LOADING ───
+let membrosLoaded = false;
+let celulosLoaded = false;
+
+function updateLoading(msg, pct) {
+  const bar = document.getElementById('loading-bar');
+  const txt = document.getElementById('loading-msg');
+  if(bar) bar.style.width = pct + '%';
+  if(txt) txt.textContent = msg;
+}
+
+function checkAllLoaded() {
+  if(membrosLoaded && celulosLoaded) {
+    updateLoading('Pronto!', 100);
+    setTimeout(() => {
+      const ls = document.getElementById('loading-screen');
+      if(ls) { ls.style.opacity='0'; ls.style.transition='opacity 0.4s'; setTimeout(()=>ls.remove(),400); }
+    }, 400);
+  }
+}
+
+// ─── STATE ───
+let _membros = [];
+let _celulas = [];
+let editingMembroId = null;
+let editingCelulaId = null;
+
+const getMembros = () => _membros;
+const getCelulas = () => _celulas;
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+const fbSetMembro  = m  => setDoc(doc(db,'membros',m.id), m);
+const fbDelMembro  = id => deleteDoc(doc(db,'membros',id));
+const fbSetCelula  = c  => setDoc(doc(db,'celulas',c.id), c);
+const fbDelCelula  = id => deleteDoc(doc(db,'celulas',id));
+
+// ─── REALTIME LISTENERS ───
+updateLoading('Carregando membros...', 30);
+onSnapshot(collection(db,'membros'), snap => {
+  _membros = snap.docs.map(d => d.data());
+  membrosLoaded = true;
+  updateLoading('Membros carregados!', 60);
+  checkAllLoaded();
+  renderMembros();
+  renderPainel();
+  if(document.getElementById('page-dashboard').classList.contains('active')) renderDashboard();
+}, err => {
+  updateLoading('Erro ao conectar: ' + err.message, 0);
+});
+
+updateLoading('Carregando células...', 50);
+onSnapshot(collection(db,'celulas'), snap => {
+  _celulas = snap.docs.map(d => d.data());
+  celulosLoaded = true;
+  updateLoading('Células carregadas!', 80);
+  checkAllLoaded();
+  renderCelulas();
+  renderPainel();
+}, err => {
+  updateLoading('Erro: ' + err.message, 0);
 });
 
 // ─── NAVIGATION ───
