@@ -686,8 +686,67 @@ td {
 }
 
 @media(max-width:580px){
-  .sidebar{display:none}
-  .main{margin-left:0}
+  .sidebar{
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    width: 260px;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .main{margin-left:0; padding:16px;}
+  .mobile-nav { display:flex !important; }
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ─── MOBILE NAV BAR ─── */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 200;
+  padding: 8px 0 12px;
+}
+
+.mobile-nav-items {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.mobile-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 6px 16px;
+  border-radius: 8px;
+  transition: all 0.15s;
+  color: var(--muted);
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: none;
+  background: none;
+  font-family: 'Outfit', sans-serif;
+}
+
+.mobile-nav-item.active { color: var(--gold2); }
+.mobile-nav-item-icon { font-size: 1.3rem; }
+
+/* overlay for sidebar on mobile */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 99;
+}
+.sidebar-overlay.open { display: block; }
+
+@media(max-width:580px){
+  .main { padding-bottom: 80px; }
 }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -864,6 +923,27 @@ td {
 
   </main>
 </div>
+
+<!-- SIDEBAR OVERLAY (mobile) -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<!-- MOBILE NAV BAR -->
+<nav class="mobile-nav">
+  <div class="mobile-nav-items">
+    <button class="mobile-nav-item active" onclick="mobileGoPage('painel',this)">
+      <span class="mobile-nav-item-icon">◈</span>Painel
+    </button>
+    <button class="mobile-nav-item" onclick="mobileGoPage('dashboard',this)">
+      <span class="mobile-nav-item-icon">◉</span>Dashboard
+    </button>
+    <button class="mobile-nav-item" onclick="mobileGoPage('membros',this)">
+      <span class="mobile-nav-item-icon">✦</span>Membros
+    </button>
+    <button class="mobile-nav-item" onclick="mobileGoPage('celulas',this)">
+      <span class="mobile-nav-item-icon">❖</span>Células
+    </button>
+  </div>
+</nav>
 
 <!-- LOADING SCREEN -->
 <div id="loading-screen" style="position:fixed;inset:0;background:#080808;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
@@ -1519,6 +1599,20 @@ function showBdayNotif(deHoje) {
   setTimeout(() => { if(notif.parentNode) notif.remove(); }, 8000);
 }
 
+// ─── MOBILE NAV ───
+function mobileGoPage(page, el) {
+  document.querySelectorAll('.mobile-nav-item').forEach(b=>b.classList.remove('active'));
+  if(el) el.classList.add('active');
+  // also sync desktop nav
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  goPage(page, null);
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar-overlay').classList.remove('open');
+  document.querySelector('.sidebar').classList.remove('open');
+}
+
 // ─── EXPOSE TO WINDOW (needed for onclick in HTML) ───
 window.goPage        = goPage;
 window.openModal     = openModal;
@@ -1534,6 +1628,8 @@ window.renderMembros = renderMembros;
 window.renderCelulas = renderCelulas;
 window.exportExcel   = exportExcel;
 window.renderAniversariantes = renderAniversariantes;
+window.mobileGoPage = mobileGoPage;
+window.closeSidebar = closeSidebar;
 
 // ─── INIT ───
 renderPainel();
